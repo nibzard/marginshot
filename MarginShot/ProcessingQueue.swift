@@ -1157,7 +1157,20 @@ final class ProcessingQueue {
             } catch {
                 return ([], nil)
             }
-            return (batch.scans.map { $0.objectID }, batch.notebook?.rulesOverrides)
+            let sortedScans = batch.scans.sorted { left, right in
+                let leftPage = left.pageNumber?.intValue ?? 0
+                let rightPage = right.pageNumber?.intValue ?? 0
+                let leftHasPage = leftPage > 0
+                let rightHasPage = rightPage > 0
+                if leftHasPage && rightHasPage && leftPage != rightPage {
+                    return leftPage < rightPage
+                }
+                if left.createdAt != right.createdAt {
+                    return left.createdAt < right.createdAt
+                }
+                return left.id.uuidString < right.id.uuidString
+            }
+            return (sortedScans.map { $0.objectID }, batch.notebook?.rulesOverrides)
         }
 
         guard !batchDetails.scanIDs.isEmpty else { return false }

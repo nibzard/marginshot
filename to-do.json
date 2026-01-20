@@ -797,11 +797,16 @@
       "id": "T036",
       "title": "Process scans in deterministic order within a batch",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Sort batch scans by page number or capture time before processing so daily notes append in the right sequence.",
       "tags": [
         "processing",
         "data"
+      ],
+      "updated_at": "2026-01-20T20:43:38Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ]
     }
   ]
