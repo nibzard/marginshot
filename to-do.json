@@ -191,7 +191,7 @@
       "id": "T009",
       "title": "Build transcription, structure, and classification pipeline",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Support fast/balanced/best modes, validate JSON outputs, and preserve raw transcripts.",
       "tags": [
         "llm",
@@ -200,6 +200,15 @@
       "depends_on": [
         "T007",
         "T008"
+      ],
+      "updated_at": "2026-01-20T15:43:58Z",
+      "files": [
+        "MarginShot/GeminiClient.swift",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/PersistenceController.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

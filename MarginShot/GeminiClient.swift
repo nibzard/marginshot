@@ -215,7 +215,23 @@ struct GeminiMessage: Codable {
 }
 
 struct GeminiPart: Codable {
-    let text: String
+    let text: String?
+    let inlineData: InlineData?
+
+    init(text: String) {
+        self.text = text
+        self.inlineData = nil
+    }
+
+    init(inlineData: InlineData) {
+        self.text = nil
+        self.inlineData = inlineData
+    }
+}
+
+struct InlineData: Codable {
+    let mimeType: String
+    let data: String
 }
 
 struct GenerationConfig: Codable {

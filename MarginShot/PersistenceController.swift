@@ -131,8 +131,11 @@ final class PersistenceController {
         let scanImagePath = attribute(name: "imagePath", type: .stringAttributeType)
         let scanProcessedPath = attribute(name: "processedImagePath", type: .stringAttributeType, optional: true)
         let scanOCR = attribute(name: "ocrText", type: .stringAttributeType, optional: true)
+        let scanTranscriptJSON = attribute(name: "transcriptJSON", type: .stringAttributeType, optional: true)
         let scanConfidence = attribute(name: "confidence", type: .doubleAttributeType, optional: true)
         let scanPageNumber = attribute(name: "pageNumber", type: .integer16AttributeType, optional: true)
+        let scanStructuredMarkdown = attribute(name: "structuredMarkdown", type: .stringAttributeType, optional: true)
+        let scanStructuredJSON = attribute(name: "structuredJSON", type: .stringAttributeType, optional: true)
 
         let noteId = attribute(name: "id", type: .UUIDAttributeType)
         let notePath = attribute(name: "path", type: .stringAttributeType)
@@ -199,8 +202,11 @@ final class PersistenceController {
             scanImagePath,
             scanProcessedPath,
             scanOCR,
+            scanTranscriptJSON,
             scanConfidence,
             scanPageNumber,
+            scanStructuredMarkdown,
+            scanStructuredJSON,
             scanBatch
         ]
 
@@ -370,8 +376,11 @@ extension ScanEntity {
     @NSManaged public var imagePath: String
     @NSManaged public var processedImagePath: String?
     @NSManaged public var ocrText: String?
+    @NSManaged public var transcriptJSON: String?
     @NSManaged public var confidence: NSNumber?
     @NSManaged public var pageNumber: NSNumber?
+    @NSManaged public var structuredMarkdown: String?
+    @NSManaged public var structuredJSON: String?
     @NSManaged public var batch: BatchEntity?
 }
 

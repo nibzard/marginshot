@@ -16,6 +16,7 @@
 		A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000F /* OnboardingView.swift */; };
 		7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE316DD78EC46B8A2164601 /* PersistenceController.swift */; };
 		A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */; };
+		A1B2C3D4E5F6000000000023 /* ProcessingPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */; };
 		B1C2D3E4F500000000000021 /* GeminiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F500000000000020 /* GeminiClient.swift */; };
 /* End PBXBuildFile section */
 
@@ -31,6 +32,7 @@
 		A1B2C3D4E5F600000000000F /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		0DE316DD78EC46B8A2164601 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingQueue.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingPipeline.swift; sourceTree = "<group>"; };
 		B1C2D3E4F500000000000020 /* GeminiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -68,6 +70,7 @@
 				A1B2C3D4E5F6000000000009 /* ContentView.swift */,
 				0DE316DD78EC46B8A2164601 /* PersistenceController.swift */,
 				A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */,
+				A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */,
 				B1C2D3E4F500000000000020 /* GeminiClient.swift */,
 				A1B2C3D4E5F6000000000004 /* Views */,
 				A1B2C3D4E5F600000000000D /* Assets.xcassets */,
@@ -164,6 +167,7 @@
 				A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */,
 				7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */,
 				A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */,
+				A1B2C3D4E5F6000000000023 /* ProcessingPipeline.swift in Sources */,
 				B1C2D3E4F500000000000021 /* GeminiClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
