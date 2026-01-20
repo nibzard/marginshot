@@ -615,10 +615,17 @@
       "id": "T032",
       "title": "Resolve open product decisions and defaults",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Decide default sync behavior, transcript storage format, and multi-notebook timing; update defaults and copy.",
       "tags": [
         "product"
+      ],
+      "updated_at": "2026-01-20T17:29:18Z",
+      "files": [
+        "SPECS.md",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/Views/OnboardingView.swift",
+        "to-do.json"
       ]
     }
   ]

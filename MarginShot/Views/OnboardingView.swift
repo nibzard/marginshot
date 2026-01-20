@@ -213,7 +213,7 @@ private enum OnboardingStep {
     var subtitle: String {
         switch self {
         case .welcome:
-            return "Snap notebook pages and chat with them later."
+            return "Snap notebook pages and chat with them later. Notes stay local until you enable sync."
         case .permissions:
             return "We use the camera for scanning and photos for optional imports."
         }

@@ -127,7 +127,7 @@ struct SettingsView: View {
                     Toggle("Wi-Fi only", isOn: $processingWiFiOnly)
                     Toggle("Charging only", isOn: $processingRequiresCharging)
                 } footer: {
-                    Text("Control background processing and model depth.")
+                    Text("Control background processing and model depth. Raw transcripts are stored in each note under \"Raw transcription\".")
                 }
 
                 Section("Sync") {
@@ -155,7 +155,7 @@ struct SettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("Sync runs after processing and apply-to-vault.")
+                    Text("Sync stays off until you choose a destination. Runs after processing and apply-to-vault.")
                 }
 
                 Section("Organization") {
@@ -168,7 +168,7 @@ struct SettingsView: View {
                     Toggle("Task extraction", isOn: $organizationTaskExtractionEnabled)
                     Toggle("Topic pages", isOn: $organizationTopicPagesEnabled)
                 } footer: {
-                    Text("Tune how notes are structured and connected.")
+                    Text("Tune how notes are structured and connected. Single default notebook for now; multi-notebook support is planned.")
                 }
 
                 Section("Privacy") {
