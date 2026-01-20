@@ -23,6 +23,28 @@ struct IndexSnapshot: Codable {
     }
 }
 
+struct ContextNote: Codable, Equatable {
+    let path: String
+    let title: String
+    let summary: String?
+    let tags: [String]?
+    let links: [String]?
+    let excerpt: String?
+    let body: String?
+}
+
+struct ContextSource: Codable, Equatable {
+    let path: String
+    let title: String
+}
+
+struct ContextBundle: Codable {
+    let query: String
+    let generatedAt: String?
+    let notes: [ContextNote]
+    let sources: [ContextSource]
+}
+
 enum VaultIndexError: Error {
     case vaultRootUnavailable
     case sqliteOpenFailed
@@ -75,6 +97,93 @@ final class VaultIndexStore {
             await updateIndexEntity(context: context, notesCount: notesCount, updatedAt: now)
         } catch {
             print("Index update failed: \(error)")
+        }
+    }
+
+    func retrieveContextBundle(
+        query: String,
+        maxResults: Int = 6,
+        maxLinkedNotes: Int = 4,
+        maxCharactersPerNote: Int = 2000
+    ) async -> ContextBundle {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let generatedAt = isoFormatter.string(from: Date())
+        guard !trimmedQuery.isEmpty else {
+            return ContextBundle(query: query, generatedAt: generatedAt, notes: [], sources: [])
+        }
+
+        do {
+            let rootURL = try vaultRootURL()
+            let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
+            let snapshot = loadIndexSnapshot(from: indexURL)
+            let searchMatches = try searchStore(
+                query: trimmedQuery,
+                rootURL: rootURL,
+                limit: max(1, maxResults * 2)
+            )
+            let tokens = tokenizeQuery(trimmedQuery)
+
+            var selectedEntries: [IndexNoteEntry] = []
+            var selectedPaths = Set<String>()
+            var snippetByPath: [String: String] = [:]
+
+            for match in searchMatches {
+                let entry = snapshot.notes.first(where: { $0.path == match.path })
+                    ?? fallbackEntry(path: match.path, title: match.title)
+                guard selectedPaths.insert(entry.path).inserted else { continue }
+                selectedEntries.append(entry)
+                if let snippet = match.snippet, !snippet.isEmpty {
+                    snippetByPath[entry.path] = snippet
+                }
+                if selectedEntries.count >= maxResults {
+                    break
+                }
+            }
+
+            if selectedEntries.count < maxResults, !tokens.isEmpty {
+                let ranked = rankIndexEntries(snapshot.notes, tokens: tokens)
+                for scored in ranked {
+                    guard selectedEntries.count < maxResults else { break }
+                    if selectedPaths.insert(scored.entry.path).inserted {
+                        selectedEntries.append(scored.entry)
+                    }
+                }
+            }
+
+            let linkLookup = buildLinkLookup(snapshot.notes)
+            var linkedEntries: [IndexNoteEntry] = []
+            if maxLinkedNotes > 0 {
+                for entry in selectedEntries {
+                    guard linkedEntries.count < maxLinkedNotes else { break }
+                    let linkCandidates = collectLinks(from: entry, snippetByPath: snippetByPath)
+                    for link in linkCandidates {
+                        guard linkedEntries.count < maxLinkedNotes else { break }
+                        let normalized = normalizedLinkKey(link)
+                        guard !normalized.isEmpty, let linked = linkLookup[normalized] else { continue }
+                        guard selectedPaths.insert(linked.path).inserted else { continue }
+                        linkedEntries.append(linked)
+                    }
+                }
+            }
+
+            let allEntries = selectedEntries + linkedEntries
+            let notes = allEntries.map { entry -> ContextNote in
+                let body = loadNoteBody(path: entry.path, maxCharacters: maxCharactersPerNote)
+                let excerpt = snippetByPath[entry.path] ?? makeExcerpt(from: body, maxCharacters: 240)
+                return ContextNote(
+                    path: entry.path,
+                    title: entry.title,
+                    summary: entry.summary,
+                    tags: entry.tags,
+                    links: entry.links,
+                    excerpt: excerpt,
+                    body: body
+                )
+            }
+            let sources = allEntries.map { ContextSource(path: $0.path, title: $0.title) }
+            return ContextBundle(query: query, generatedAt: generatedAt, notes: notes, sources: sources)
+        } catch {
+            return ContextBundle(query: query, generatedAt: generatedAt, notes: [], sources: [])
         }
     }
 
@@ -157,6 +266,224 @@ final class VaultIndexStore {
         }
     }
 
+    private struct SearchMatch {
+        let path: String
+        let title: String?
+        let snippet: String?
+    }
+
+    private struct ScoredEntry {
+        let entry: IndexNoteEntry
+        let score: Int
+    }
+
+    private func searchStore(query: String, rootURL: URL, limit: Int) throws -> [SearchMatch] {
+        let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
+        guard fileManager.fileExists(atPath: searchURL.path) else {
+            return []
+        }
+
+        return try withSQLite {
+            var db: OpaquePointer?
+            guard sqlite3_open(searchURL.path, &db) == SQLITE_OK else {
+                throw VaultIndexError.sqliteOpenFailed
+            }
+            defer { sqlite3_close(db) }
+            sqlite3_busy_timeout(db, 1000)
+            try createSearchTable(db)
+
+            let sql = """
+            SELECT path, title, snippet(notes, 2, '', '', ' ... ', 12) AS snippet
+            FROM notes
+            WHERE notes MATCH ?
+            ORDER BY bm25(notes)
+            LIMIT ?;
+            """
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw VaultIndexError.sqlitePrepareFailed
+            }
+            defer { sqlite3_finalize(statement) }
+
+            let tokens = tokenizeQuery(query)
+            let ftsQuery = buildFTSQuery(from: tokens, fallback: query)
+            bindText(statement, index: 1, value: ftsQuery)
+            sqlite3_bind_int(statement, 2, Int32(max(1, limit)))
+
+            var matches: [SearchMatch] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let pathText = sqlite3_column_text(statement, 0) else { continue }
+                let path = String(cString: pathText)
+                let title = stringColumn(statement, index: 1)
+                let snippet = stringColumn(statement, index: 2)
+                matches.append(SearchMatch(path: path, title: title, snippet: snippet))
+            }
+            return matches
+        }
+    }
+
+    private func tokenizeQuery(_ query: String) -> [String] {
+        let cleaned = query.replacingOccurrences(of: "\"", with: " ")
+        let tokens = cleaned
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        return Array(tokens.prefix(8))
+    }
+
+    private func buildFTSQuery(from tokens: [String], fallback: String) -> String {
+        let trimmedTokens = tokens.filter { !$0.isEmpty }
+        guard !trimmedTokens.isEmpty else {
+            return fallback
+        }
+        return trimmedTokens.map { "\($0)*" }.joined(separator: " OR ")
+    }
+
+    private func rankIndexEntries(_ entries: [IndexNoteEntry], tokens: [String]) -> [ScoredEntry] {
+        guard !tokens.isEmpty else { return [] }
+        let tokenSet = Set(tokens)
+        let scored = entries.compactMap { entry -> ScoredEntry? in
+            let title = entry.title.lowercased()
+            let summary = (entry.summary ?? "").lowercased()
+            let tags = (entry.tags ?? []).joined(separator: " ").lowercased()
+            let links = (entry.links ?? []).joined(separator: " ").lowercased()
+            var score = 0
+            for token in tokenSet {
+                if title.contains(token) {
+                    score += 3
+                }
+                if summary.contains(token) {
+                    score += 2
+                }
+                if tags.contains(token) {
+                    score += 1
+                }
+                if links.contains(token) {
+                    score += 1
+                }
+            }
+            guard score > 0 else { return nil }
+            return ScoredEntry(entry: entry, score: score)
+        }
+        return scored.sorted {
+            if $0.score == $1.score {
+                return $0.entry.path < $1.entry.path
+            }
+            return $0.score > $1.score
+        }
+    }
+
+    private func buildLinkLookup(_ entries: [IndexNoteEntry]) -> [String: IndexNoteEntry] {
+        var lookup: [String: IndexNoteEntry] = [:]
+        for entry in entries {
+            let titleKey = normalizedLinkKey(entry.title)
+            if !titleKey.isEmpty {
+                lookup[titleKey] = entry
+            }
+            let pathKey = normalizedLinkKey(titleFromPath(entry.path))
+            if !pathKey.isEmpty {
+                lookup[pathKey] = entry
+            }
+        }
+        return lookup
+    }
+
+    private func collectLinks(from entry: IndexNoteEntry, snippetByPath: [String: String]) -> [String] {
+        if let links = entry.links, !links.isEmpty {
+            return links
+        }
+        if let snippet = snippetByPath[entry.path] {
+            let extracted = extractWikiLinks(from: snippet, limit: 6)
+            if !extracted.isEmpty {
+                return extracted
+            }
+        }
+        let body = loadNoteBody(path: entry.path, maxCharacters: 1200)
+        return extractWikiLinks(from: body ?? "", limit: 6)
+    }
+
+    private func extractWikiLinks(from text: String, limit: Int) -> [String] {
+        guard limit > 0 else { return [] }
+        var results: [String] = []
+        var searchRange = text.startIndex..<text.endIndex
+        while let open = text.range(of: "[[", range: searchRange) {
+            guard let close = text.range(of: "]]", range: open.upperBound..<text.endIndex) else {
+                break
+            }
+            let raw = String(text[open.upperBound..<close.lowerBound])
+            if !raw.isEmpty {
+                results.append(raw)
+                if results.count >= limit {
+                    break
+                }
+            }
+            searchRange = close.upperBound..<text.endIndex
+        }
+        return results
+    }
+
+    private func normalizedLinkKey(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        var normalized = trimmed
+        if normalized.hasPrefix("[[") && normalized.hasSuffix("]]") {
+            normalized = String(normalized.dropFirst(2).dropLast(2))
+        }
+        if let pipeIndex = normalized.firstIndex(of: "|") {
+            normalized = String(normalized[..<pipeIndex])
+        }
+        if let hashIndex = normalized.firstIndex(of: "#") {
+            normalized = String(normalized[..<hashIndex])
+        }
+        normalized = (normalized as NSString).deletingPathExtension
+        normalized = (normalized as NSString).lastPathComponent
+        normalized = normalized
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        return normalized
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func fallbackEntry(path: String, title: String?) -> IndexNoteEntry {
+        let resolvedTitle = (title?.isEmpty == false) ? title! : titleFromPath(path)
+        return IndexNoteEntry(
+            path: path,
+            title: resolvedTitle,
+            summary: nil,
+            tags: nil,
+            links: nil,
+            updatedAt: nil
+        )
+    }
+
+    private func titleFromPath(_ path: String) -> String {
+        let fileName = (path as NSString).lastPathComponent
+        let base = (fileName as NSString).deletingPathExtension
+        return base.isEmpty ? path : base
+    }
+
+    private func makeExcerpt(from text: String?, maxCharacters: Int) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        if text.count <= maxCharacters {
+            return text
+        }
+        let endIndex = text.index(text.startIndex, offsetBy: maxCharacters)
+        return String(text[..<endIndex])
+    }
+
+    private func loadNoteBody(path: String, maxCharacters: Int) -> String? {
+        guard let url = try? VaultScanStore.url(for: path),
+              let contents = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        if contents.count > maxCharacters {
+            let endIndex = contents.index(contents.startIndex, offsetBy: maxCharacters)
+            return String(contents[..<endIndex])
+        }
+        return contents
+    }
+
     private func withSQLite<T>(_ work: () throws -> T) throws -> T {
         var result: Result<T, Error>!
         sqliteQueue.sync {
@@ -220,6 +547,11 @@ final class VaultIndexStore {
 
     private func bindText(_ statement: OpaquePointer?, index: Int32, value: String) {
         sqlite3_bind_text(statement, index, (value as NSString).utf8String, -1, sqliteTransient)
+    }
+
+    private func stringColumn(_ statement: OpaquePointer?, index: Int32) -> String? {
+        guard let text = sqlite3_column_text(statement, index) else { return nil }
+        return String(cString: text)
     }
 
     private func updateIndexEntity(

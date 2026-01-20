@@ -245,11 +245,11 @@
       "depends_on": [
         "T010"
       ],
-      "updated_at": "2026-01-20T16:04:48Z",
+      "updated_at": "2026-01-20T16:05:32Z",
       "files": [
-        "MarginShot/VaultIndexStore.swift",
-        "MarginShot/ProcessingQueue.swift",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/VaultIndexStore.swift",
         "to-do.json"
       ]
     },
@@ -257,7 +257,7 @@
       "id": "T012",
       "title": "Implement retrieval for chat grounding",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Query index + FTS, expand via wiki-links, and build a context bundle for the chat agent.",
       "tags": [
         "chat",
@@ -265,6 +265,11 @@
       ],
       "depends_on": [
         "T011"
+      ],
+      "updated_at": "2026-01-20T16:10:56Z",
+      "files": [
+        "MarginShot/VaultIndexStore.swift",
+        "to-do.json"
       ]
     },
     {
