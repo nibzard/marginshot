@@ -249,7 +249,7 @@ final class ChatViewModel: ObservableObject {
     private func chatErrorMessage(_ error: GeminiClientError) -> String {
         switch error {
         case .missingAPIKey:
-            return "Chat isn't configured yet. Add a Gemini API key to continue."
+            return "Chat isn't configured yet. Add a Gemini API key in Settings to continue."
         case .requestFailed(_, let message):
             if let message {
                 return "Chat request failed. \(message)"

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 enum GeminiClientError: Error, LocalizedError {
     case missingAPIKey
@@ -53,9 +54,20 @@ struct GeminiConfiguration {
     let maxBackoff: TimeInterval
 
     static func load(bundle: Bundle = .main, userDefaults: UserDefaults = .standard) throws -> GeminiConfiguration {
-        let apiKey = userDefaults.string(forKey: "GeminiAPIKey")
-            ?? bundle.object(forInfoDictionaryKey: "GeminiAPIKey") as? String
+        let keychainKey = KeychainStore.geminiAPIKeyKey
+        let storedAPIKey = KeychainStore.readString(forKey: keychainKey)
+        let defaultsAPIKey = userDefaults.string(forKey: "GeminiAPIKey")
+        let plistAPIKey = bundle.object(forInfoDictionaryKey: "GeminiAPIKey") as? String
+        let apiKey = storedAPIKey
+            ?? defaultsAPIKey
+            ?? plistAPIKey
             ?? ""
+        if storedAPIKey == nil,
+           let candidate = defaultsAPIKey ?? plistAPIKey,
+           !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? KeychainStore.saveString(candidate, forKey: keychainKey)
+            userDefaults.removeObject(forKey: "GeminiAPIKey")
+        }
         let model = userDefaults.string(forKey: "GeminiModelName")
             ?? bundle.object(forInfoDictionaryKey: "GeminiModelName") as? String
             ?? "gemini-1.5-flash"
@@ -253,6 +265,71 @@ struct GenerationConfig: Codable {
         self.topK = topK
         self.maxOutputTokens = maxOutputTokens
         self.responseMimeType = responseMimeType
+    }
+}
+
+enum KeychainStoreError: Error {
+    case unexpectedStatus(OSStatus)
+}
+
+enum KeychainStore {
+    static let geminiAPIKeyKey = "GeminiAPIKey"
+    private static let service = Bundle.main.bundleIdentifier ?? "MarginShot"
+
+    static func readString(forKey key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func saveString(_ value: String, forKey key: String) throws {
+        let data = Data(value.utf8)
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            query.removeValue(forKey: kSecValueData as String)
+            let updateStatus = SecItemUpdate(
+                query as CFDictionary,
+                [
+                    kSecValueData as String: data
+                ] as CFDictionary
+            )
+            guard updateStatus == errSecSuccess else {
+                throw KeychainStoreError.unexpectedStatus(updateStatus)
+            }
+            return
+        }
+        guard status == errSecSuccess else {
+            throw KeychainStoreError.unexpectedStatus(status)
+        }
+    }
+
+    static func delete(forKey key: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainStoreError.unexpectedStatus(status)
+        }
     }
 }
 

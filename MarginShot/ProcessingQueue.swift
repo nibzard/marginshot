@@ -16,6 +16,10 @@ struct ProcessingPreferences {
     var qualityMode: ProcessingQualityMode {
         ProcessingQualityMode.load()
     }
+
+    var allowsImageUploads: Bool {
+        UserDefaults.standard.object(forKey: "privacySendImagesToLLM") as? Bool ?? true
+    }
 }
 
 struct ScanSnapshot {
@@ -266,6 +270,7 @@ final class ProcessingQueue {
 
     func scheduleBackgroundProcessing() {
         let prefs = preferences
+        guard prefs.allowsImageUploads else { return }
         BGTaskScheduler.shared.getPendingTaskRequests { [weak self] requests in
             guard let self else { return }
             guard !requests.contains(where: { $0.identifier == self.taskIdentifier }) else { return }
@@ -334,6 +339,8 @@ final class ProcessingQueue {
     }
 
     private func processPendingBatches() async -> Bool {
+        let prefs = preferences
+        guard prefs.allowsImageUploads else { return true }
         guard await hasRequiredPower() else {
             scheduleBackgroundProcessing()
             return false

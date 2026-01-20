@@ -86,6 +86,9 @@ struct SettingsView: View {
     @AppStorage("advancedReviewBeforeApply") private var advancedReviewBeforeApply = false
     @AppStorage("advancedEnableZipExport") private var advancedEnableZipExport = false
 
+    @State private var geminiAPIKeyDraft = ""
+    @State private var hasGeminiAPIKey = false
+    @State private var geminiAPIKeyStatus: String?
     @State private var isPickingSyncFolder = false
 
     private var syncDestination: Binding<SyncDestination> {
@@ -170,9 +173,36 @@ struct SettingsView: View {
 
                 Section("Privacy") {
                     Toggle("Send images to LLM", isOn: $privacySendImagesToLLM)
+                    VStack(alignment: .leading, spacing: 8) {
+                        SecureField("Gemini API key", text: $geminiAPIKeyDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                        HStack(spacing: 12) {
+                            Button("Save API key") {
+                                saveGeminiAPIKey()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!canSaveGeminiAPIKey)
+                            if hasGeminiAPIKey {
+                                Button("Clear") {
+                                    clearGeminiAPIKey()
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        if let geminiAPIKeyStatus {
+                            Text(geminiAPIKeyStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if hasGeminiAPIKey {
+                            Text("API key stored in Keychain.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Toggle("Local encryption", isOn: $privacyLocalEncryptionEnabled)
                 } footer: {
-                    Text("Turning off image uploads reduces transcription quality.")
+                    Text("When enabled, page images are sent to the LLM provider for transcription. Turn this off to keep images on device; scans stay in the inbox until re-enabled.")
                 }
 
                 Section("Advanced") {
@@ -193,12 +223,18 @@ struct SettingsView: View {
         }
         .onAppear {
             syncStatus.refreshDestination()
+            refreshGeminiAPIKeyStatus()
         }
         .onChange(of: syncDestinationRaw) { newValue in
             let resolved = SyncDestination(rawValue: newValue) ?? .off
             syncStatus.updateDestination(resolved)
             if resolved == .folder, syncFolderDisplayName.isEmpty {
                 syncStatus.markError("Select a folder in Settings to enable sync.")
+            }
+        }
+        .onChange(of: privacySendImagesToLLM) { newValue in
+            if newValue {
+                ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
         .fileImporter(
@@ -230,6 +266,38 @@ struct SettingsView: View {
             case .failure(let error):
                 print("Sync folder selection failed: \(error)")
             }
+        }
+    }
+
+    private var canSaveGeminiAPIKey: Bool {
+        !geminiAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func refreshGeminiAPIKeyStatus() {
+        hasGeminiAPIKey = KeychainStore.readString(forKey: KeychainStore.geminiAPIKeyKey) != nil
+        geminiAPIKeyStatus = nil
+    }
+
+    private func saveGeminiAPIKey() {
+        let trimmed = geminiAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try KeychainStore.saveString(trimmed, forKey: KeychainStore.geminiAPIKeyKey)
+            geminiAPIKeyDraft = ""
+            hasGeminiAPIKey = true
+            geminiAPIKeyStatus = "API key saved."
+        } catch {
+            geminiAPIKeyStatus = "Failed to save API key."
+        }
+    }
+
+    private func clearGeminiAPIKey() {
+        do {
+            try KeychainStore.delete(forKey: KeychainStore.geminiAPIKeyKey)
+            hasGeminiAPIKey = false
+            geminiAPIKeyStatus = "API key removed."
+        } catch {
+            geminiAPIKeyStatus = "Failed to remove API key."
         }
     }
 

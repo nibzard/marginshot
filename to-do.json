@@ -409,7 +409,7 @@
       "id": "T019",
       "title": "Implement privacy and security baseline",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Add LLM image send toggle with disclosure text and store tokens securely in Keychain.",
       "tags": [
         "privacy",
@@ -418,6 +418,14 @@
       "depends_on": [
         "T008",
         "T016"
+      ],
+      "updated_at": "2026-01-20T17:19:38Z",
+      "files": [
+        "MarginShot/GeminiClient.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
       ]
     },
     {
