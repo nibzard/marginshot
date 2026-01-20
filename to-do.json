@@ -351,11 +351,11 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-20T16:48:24Z",
+      "updated_at": "2026-01-20T16:49:07Z",
       "files": [
-        "MarginShot/Views/SettingsView.swift",
-        "MarginShot/Views/CaptureView.swift",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ]
     },
@@ -363,7 +363,7 @@
       "id": "T017",
       "title": "Implement folder export as a sync destination",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Allow selecting a folder destination and run background sync after processing or apply-to-vault.",
       "tags": [
         "sync",
@@ -372,6 +372,12 @@
       "depends_on": [
         "T010",
         "T016"
+      ],
+      "updated_at": "2026-01-20T16:57:21Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
       ]
     },
     {

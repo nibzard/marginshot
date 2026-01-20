@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum SyncDestination: String, CaseIterable, Identifiable {
     case off
@@ -20,6 +21,14 @@ enum SyncDestination: String, CaseIterable, Identifiable {
             return "Custom Git Remote"
         }
     }
+}
+
+enum SyncDefaults {
+    static let destinationKey = "syncDestination"
+    static let wiFiOnlyKey = "syncWiFiOnly"
+    static let requiresChargingKey = "syncRequiresCharging"
+    static let folderBookmarkKey = "syncFolderBookmark"
+    static let folderDisplayNameKey = "syncFolderDisplayName"
 }
 
 enum OrganizationStyle: String, CaseIterable, Identifiable {
@@ -59,9 +68,11 @@ struct SettingsView: View {
     @AppStorage("processingWiFiOnly") private var processingWiFiOnly = false
     @AppStorage("processingRequiresCharging") private var processingRequiresCharging = false
 
-    @AppStorage("syncDestination") private var syncDestinationRaw = SyncDestination.off.rawValue
-    @AppStorage("syncWiFiOnly") private var syncWiFiOnly = false
-    @AppStorage("syncRequiresCharging") private var syncRequiresCharging = false
+    @AppStorage(SyncDefaults.destinationKey) private var syncDestinationRaw = SyncDestination.off.rawValue
+    @AppStorage(SyncDefaults.wiFiOnlyKey) private var syncWiFiOnly = false
+    @AppStorage(SyncDefaults.requiresChargingKey) private var syncRequiresCharging = false
+    @AppStorage(SyncDefaults.folderBookmarkKey) private var syncFolderBookmark = Data()
+    @AppStorage(SyncDefaults.folderDisplayNameKey) private var syncFolderDisplayName = ""
 
     @AppStorage("organizationStyle") private var organizationStyleRaw = OrganizationStyle.simple.rawValue
     @AppStorage("organizationLinkingEnabled") private var organizationLinkingEnabled = true
@@ -73,6 +84,8 @@ struct SettingsView: View {
 
     @AppStorage("advancedReviewBeforeApply") private var advancedReviewBeforeApply = false
     @AppStorage("advancedEnableZipExport") private var advancedEnableZipExport = false
+
+    @State private var isPickingSyncFolder = false
 
     private var syncDestination: Binding<SyncDestination> {
         Binding(
@@ -119,6 +132,21 @@ struct SettingsView: View {
                     }
                     Toggle("Wi-Fi only", isOn: $syncWiFiOnly)
                     Toggle("Charging only", isOn: $syncRequiresCharging)
+                    if syncDestination.wrappedValue == .folder {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(syncFolderDisplayName.isEmpty ? "No folder selected" : syncFolderDisplayName)
+                                .foregroundStyle(syncFolderDisplayName.isEmpty ? .secondary : .primary)
+                            Button("Choose Folder") {
+                                isPickingSyncFolder = true
+                            }
+                            if !syncFolderDisplayName.isEmpty {
+                                Button("Clear Folder") {
+                                    syncFolderBookmark = Data()
+                                    syncFolderDisplayName = ""
+                                }
+                            }
+                        }
+                    }
                 } footer: {
                     Text("Sync runs after processing and apply-to-vault.")
                 }
@@ -157,6 +185,35 @@ struct SettingsView: View {
                         dismiss()
                     }
                 }
+            }
+        }
+        .fileImporter(
+            isPresented: $isPickingSyncFolder,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer {
+                    if didAccess {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                do {
+                    let bookmark = try url.bookmarkData(
+                        options: [.withSecurityScope],
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil
+                    )
+                    syncFolderBookmark = bookmark
+                    syncFolderDisplayName = url.lastPathComponent
+                } catch {
+                    print("Failed to store sync folder bookmark: \(error)")
+                }
+            case .failure(let error):
+                print("Sync folder selection failed: \(error)")
             }
         }
     }

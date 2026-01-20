@@ -385,6 +385,7 @@ final class ProcessingQueue {
                 allSucceeded = false
             }
         }
+        await SyncCoordinator.shared.syncIfNeeded(trigger: .processing)
         return allSucceeded
     }
 
@@ -701,5 +702,197 @@ enum NetworkConstraintChecker {
             }
             monitor.start(queue: queue)
         }
+    }
+}
+
+struct SyncPreferences {
+    var destination: SyncDestination {
+        let raw = UserDefaults.standard.string(forKey: SyncDefaults.destinationKey) ?? SyncDestination.off.rawValue
+        return SyncDestination(rawValue: raw) ?? .off
+    }
+
+    var requiresWiFi: Bool {
+        UserDefaults.standard.bool(forKey: SyncDefaults.wiFiOnlyKey)
+    }
+
+    var requiresExternalPower: Bool {
+        UserDefaults.standard.bool(forKey: SyncDefaults.requiresChargingKey)
+    }
+}
+
+enum SyncTrigger: String {
+    case processing
+    case applyToVault
+    case manual
+}
+
+enum SyncFolderSelection {
+    static func resolveURL() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: SyncDefaults.folderBookmarkKey) else {
+            return nil
+        }
+        var isStale = false
+        let url = try? URL(
+            resolvingBookmarkData: data,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+        if isStale, let url {
+            refreshBookmark(for: url)
+        }
+        return url
+    }
+
+    private static func refreshBookmark(for url: URL) {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        guard let data = try? url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: SyncDefaults.folderBookmarkKey)
+        UserDefaults.standard.set(url.lastPathComponent, forKey: SyncDefaults.folderDisplayNameKey)
+    }
+}
+
+enum FolderSyncError: Error {
+    case documentsDirectoryUnavailable
+}
+
+enum FolderSyncer {
+    private static let fileManager = FileManager.default
+
+    static func syncVault(to destinationURL: URL) throws {
+        let vaultURL = try vaultRootURL()
+        let didAccess = destinationURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                destinationURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        try syncDirectory(from: vaultURL, to: destinationURL)
+    }
+
+    private static func vaultRootURL() throws -> URL {
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw FolderSyncError.documentsDirectoryUnavailable
+        }
+        return documentsURL.appendingPathComponent("vault", isDirectory: true)
+    }
+
+    private static func syncDirectory(from sourceURL: URL, to destinationURL: URL) throws {
+        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]
+        guard let enumerator = fileManager.enumerator(
+            at: sourceURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for case let fileURL as URL in enumerator {
+            let relativePath = relativePath(from: sourceURL, to: fileURL)
+            let targetURL = destinationURL.appendingPathComponent(relativePath)
+            let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
+
+            if resourceValues.isDirectory == true {
+                try fileManager.createDirectory(at: targetURL, withIntermediateDirectories: true, attributes: nil)
+                continue
+            }
+
+            if try shouldCopyFile(from: fileURL, to: targetURL) {
+                let parent = targetURL.deletingLastPathComponent()
+                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+                try replaceItem(at: targetURL, with: fileURL)
+            }
+        }
+    }
+
+    private static func relativePath(from baseURL: URL, to fileURL: URL) -> String {
+        let basePath = baseURL.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(basePath) else {
+            return fileURL.lastPathComponent
+        }
+        var relative = String(filePath.dropFirst(basePath.count))
+        if relative.hasPrefix("/") {
+            relative.removeFirst()
+        }
+        return relative
+    }
+
+    private static func shouldCopyFile(from sourceURL: URL, to destinationURL: URL) throws -> Bool {
+        guard fileManager.fileExists(atPath: destinationURL.path) else {
+            return true
+        }
+        let sourceAttributes = try fileManager.attributesOfItem(atPath: sourceURL.path)
+        let destinationAttributes = try fileManager.attributesOfItem(atPath: destinationURL.path)
+        if let sourceSize = sourceAttributes[.size] as? NSNumber,
+           let destinationSize = destinationAttributes[.size] as? NSNumber,
+           sourceSize != destinationSize {
+            return true
+        }
+        if let sourceDate = sourceAttributes[.modificationDate] as? Date,
+           let destinationDate = destinationAttributes[.modificationDate] as? Date,
+           sourceDate > destinationDate {
+            return true
+        }
+        return false
+    }
+
+    private static func replaceItem(at destinationURL: URL, with sourceURL: URL) throws {
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: sourceURL)
+        } else {
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
+    }
+}
+
+actor SyncCoordinator {
+    static let shared = SyncCoordinator()
+
+    private var isSyncing = false
+
+    func syncIfNeeded(trigger: SyncTrigger) async {
+        guard !isSyncing else { return }
+        let prefs = SyncPreferences()
+        guard prefs.destination == .folder else { return }
+        guard await constraintsSatisfied(prefs) else { return }
+        guard let destinationURL = SyncFolderSelection.resolveURL() else { return }
+
+        isSyncing = true
+        defer { isSyncing = false }
+
+        do {
+            try FolderSyncer.syncVault(to: destinationURL)
+        } catch {
+            print("Sync failed (\(trigger.rawValue)): \(error)")
+        }
+    }
+
+    private func constraintsSatisfied(_ prefs: SyncPreferences) async -> Bool {
+        if prefs.requiresExternalPower {
+            let hasPower = await MainActor.run {
+                UIDevice.current.isBatteryMonitoringEnabled = true
+                let state = UIDevice.current.batteryState
+                return state == .charging || state == .full
+            }
+            guard hasPower else { return false }
+        }
+        if prefs.requiresWiFi {
+            let wifiAvailable = await NetworkConstraintChecker.isWiFiAvailable()
+            guard wifiAvailable else { return false }
+        }
+        return true
     }
 }
