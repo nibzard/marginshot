@@ -20,6 +20,7 @@
 		A1B2C3D4E5F6000000000025 /* VaultIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000026 /* VaultIndexStore.swift */; };
 		A1B2C3D4E5F6000000000028 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000027 /* libsqlite3.tbd */; };
 		B1C2D3E4F500000000000021 /* GeminiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F500000000000020 /* GeminiClient.swift */; };
+		C0A1B2C3D4E5000000000031 /* ChatAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1B2C3D4E5000000000030 /* ChatAgent.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 		A1B2C3D4E5F6000000000026 /* VaultIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultIndexStore.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000027 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		B1C2D3E4F500000000000020 /* GeminiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiClient.swift; sourceTree = "<group>"; };
+		C0A1B2C3D4E5000000000030 /* ChatAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAgent.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +81,7 @@
 				A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */,
 				A1B2C3D4E5F6000000000026 /* VaultIndexStore.swift */,
 				B1C2D3E4F500000000000020 /* GeminiClient.swift */,
+				C0A1B2C3D4E5000000000030 /* ChatAgent.swift */,
 				A1B2C3D4E5F6000000000004 /* Views */,
 				A1B2C3D4E5F600000000000D /* Assets.xcassets */,
 				A1B2C3D4E5F600000000000E /* Info.plist */,
@@ -185,6 +188,7 @@
 				A1B2C3D4E5F6000000000023 /* ProcessingPipeline.swift in Sources */,
 				A1B2C3D4E5F6000000000025 /* VaultIndexStore.swift in Sources */,
 				B1C2D3E4F500000000000021 /* GeminiClient.swift in Sources */,
+				C0A1B2C3D4E5000000000031 /* ChatAgent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

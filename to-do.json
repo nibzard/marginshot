@@ -266,7 +266,7 @@
       "depends_on": [
         "T011"
       ],
-      "updated_at": "2026-01-20T16:10:56Z",
+      "updated_at": "2026-01-20T16:12:05Z",
       "files": [
         "MarginShot/VaultIndexStore.swift",
         "to-do.json"
@@ -276,7 +276,7 @@
       "id": "T013",
       "title": "Implement the chat agent and grounding rules",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Call the LLM with context and system rules, enforce grounded responses, and return sources metadata.",
       "tags": [
         "chat",
@@ -285,6 +285,12 @@
       "depends_on": [
         "T008",
         "T012"
+      ],
+      "updated_at": "2026-01-20T16:17:03Z",
+      "files": [
+        "MarginShot/ChatAgent.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {
