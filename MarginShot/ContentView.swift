@@ -17,21 +17,28 @@ enum AppMode: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedMode: AppMode = .capture
     @State private var syncState: SyncState = .idle
 
     var body: some View {
-        VStack(spacing: 0) {
-            HeaderView(mode: selectedMode, syncState: syncState)
-            TabView(selection: $selectedMode) {
-                CaptureView()
-                    .tag(AppMode.capture)
-                ChatView()
-                    .tag(AppMode.chat)
+        Group {
+            if hasCompletedOnboarding {
+                VStack(spacing: 0) {
+                    HeaderView(mode: selectedMode, syncState: syncState)
+                    TabView(selection: $selectedMode) {
+                        CaptureView()
+                            .tag(AppMode.capture)
+                        ChatView()
+                            .tag(AppMode.chat)
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                }
+                .animation(.easeInOut(duration: 0.2), value: selectedMode)
+            } else {
+                OnboardingView(isComplete: $hasCompletedOnboarding)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
         }
-        .animation(.easeInOut(duration: 0.2), value: selectedMode)
     }
 }
 

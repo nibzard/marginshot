@@ -40,7 +40,7 @@
       "id": "T002",
       "title": "Implement onboarding and permissions flow",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Show a welcome screen, request camera (and optional photos) permissions, and handle denial paths.",
       "tags": [
         "ui",
@@ -48,6 +48,14 @@
       ],
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-20T14:35:20Z",
+      "files": [
+        "MarginShot/ContentView.swift",
+        "MarginShot/Views/OnboardingView.swift",
+        "MarginShot/Info.plist",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

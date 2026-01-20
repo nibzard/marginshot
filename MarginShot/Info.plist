@@ -6,6 +6,10 @@
     <string>MarginShot</string>
     <key>CFBundleDisplayName</key>
     <string>MarginShot</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Use the camera to scan notebook pages.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Allow photo access to import existing pages.</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
