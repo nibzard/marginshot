@@ -504,7 +504,7 @@
       "id": "T023",
       "title": "Implement task extraction and consolidation",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Optionally aggregate tasks into 13_tasks and keep them updated during processing.",
       "tags": [
         "tasks",
@@ -513,6 +513,11 @@
       "depends_on": [
         "T010",
         "T016"
+      ],
+      "updated_at": "2026-01-20T18:53:36Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ]
     },
     {
@@ -648,7 +653,7 @@
         "T017",
         "T014"
       ],
-      "updated_at": "2026-01-20T18:44:54Z",
+      "updated_at": "2026-01-20T18:46:01Z",
       "files": [
         "MarginShot.xcodeproj/project.pbxproj",
         "MarginShot/MarginShotApp.swift",

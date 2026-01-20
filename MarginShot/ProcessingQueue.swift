@@ -427,6 +427,198 @@ enum VaultWriter {
     }
 }
 
+enum TaskConsolidatorError: Error {
+    case documentsDirectoryUnavailable
+}
+
+enum TaskConsolidator {
+    private struct NoteEntry {
+        let path: String
+        let title: String
+    }
+
+    private struct TaskSource {
+        let path: String
+        let title: String
+        let tasks: [String]
+    }
+
+    private static let tasksFolder = "13_tasks"
+    private static let tasksFileName = "Tasks.md"
+    private static let skipRoots: Set<String> = ["_system", "scans", tasksFolder]
+    private static let fileManager = FileManager.default
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+    private static let checkboxRegex: NSRegularExpression = {
+        return try! NSRegularExpression(pattern: #"^\s*[-*]\s+\[( |x|X)\]\s+(.*)$"#, options: [])
+    }()
+
+    static func refreshIfEnabled(context: NSManagedObjectContext?) async {
+        guard UserDefaults.standard.bool(forKey: "organizationTaskExtractionEnabled") else { return }
+        do {
+            let rootURL = try vaultRootURL()
+            let entries = loadNoteEntries(rootURL: rootURL)
+            let sources = entries.compactMap { entry -> TaskSource? in
+                let noteURL = rootURL.appendingPathComponent(entry.path)
+                guard let markdown = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
+                let tasks = extractOpenTasks(from: markdown)
+                guard !tasks.isEmpty else { return nil }
+                return TaskSource(path: entry.path, title: entry.title, tasks: tasks)
+            }
+            let sortedSources = sources.sorted { $0.path < $1.path }
+            let content = buildTasksMarkdown(sources: sortedSources, updatedAt: Date())
+            let tasksPath = "\(tasksFolder)/\(tasksFileName)"
+            let tasksURL = rootURL.appendingPathComponent(tasksPath)
+            try writeAtomically(text: content, to: tasksURL)
+            let noteMeta = NoteMeta(
+                title: "Tasks",
+                summary: "Consolidated open tasks.",
+                tags: ["tasks"],
+                links: nil
+            )
+            await VaultIndexStore.shared.updateAfterNoteWrite(
+                notePath: tasksPath,
+                noteTitle: "Tasks",
+                noteMeta: noteMeta,
+                context: context
+            )
+        } catch {
+            print("Task consolidation failed: \(error)")
+        }
+    }
+
+    private static func loadNoteEntries(rootURL: URL) -> [NoteEntry] {
+        let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
+        if let data = try? Data(contentsOf: indexURL),
+           let snapshot = try? JSONDecoder().decode(IndexSnapshot.self, from: data) {
+            let entries = snapshot.notes.compactMap { note -> NoteEntry? in
+                guard shouldInclude(path: note.path) else { return nil }
+                let title = note.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                return NoteEntry(path: note.path, title: title.isEmpty ? titleFromPath(note.path) : title)
+            }
+            return entries.sorted { $0.path < $1.path }
+        }
+        return enumerateNoteEntries(rootURL: rootURL).sorted { $0.path < $1.path }
+    }
+
+    private static func enumerateNoteEntries(rootURL: URL) -> [NoteEntry] {
+        guard let enumerator = fileManager.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var entries: [NoteEntry] = []
+        for case let url as URL in enumerator {
+            let relativePath = url.path.replacingOccurrences(of: rootURL.path + "/", with: "")
+            let components = relativePath.split(separator: "/")
+            guard let first = components.first else { continue }
+            if skipRoots.contains(String(first)) {
+                enumerator.skipDescendants()
+                continue
+            }
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                continue
+            }
+            guard shouldInclude(path: relativePath) else { continue }
+            let title = titleFromPath(relativePath)
+            entries.append(NoteEntry(path: relativePath, title: title))
+        }
+        return entries
+    }
+
+    private static func shouldInclude(path: String) -> Bool {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let components = trimmed.split(separator: "/")
+        guard let first = components.first, !skipRoots.contains(String(first)) else { return false }
+        return (trimmed as NSString).pathExtension.lowercased() == "md"
+    }
+
+    private static func extractOpenTasks(from markdown: String) -> [String] {
+        var results: [String] = []
+        var seen = Set<String>()
+        var skipRemaining = false
+
+        for lineSub in markdown.split(whereSeparator: \.isNewline) {
+            let line = String(lineSub)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("#") {
+                let lower = trimmed.lowercased()
+                if lower.contains("raw transcription") || lower.contains("raw transcript") {
+                    skipRemaining = true
+                    continue
+                }
+            }
+            if skipRemaining { continue }
+            let range = NSRange(location: 0, length: (line as NSString).length)
+            guard let match = checkboxRegex.firstMatch(in: line, range: range) else { continue }
+            guard let stateRange = Range(match.range(at: 1), in: line),
+                  let textRange = Range(match.range(at: 2), in: line) else { continue }
+            let state = String(line[stateRange])
+            if state.lowercased() == "x" { continue }
+            let task = String(line[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !task.isEmpty else { continue }
+            let key = normalizedTaskKey(task)
+            guard seen.insert(key).inserted else { continue }
+            results.append(task)
+        }
+
+        return results
+    }
+
+    private static func normalizedTaskKey(_ task: String) -> String {
+        task.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func buildTasksMarkdown(sources: [TaskSource], updatedAt: Date) -> String {
+        var content = "# Tasks\n"
+        content += "Updated: \(isoFormatter.string(from: updatedAt))\n\n"
+        if sources.isEmpty {
+            content += "No open tasks found.\n"
+            return content
+        }
+
+        for source in sources {
+            content += "## \(source.title)\n"
+            let relativePath = "../\(source.path)"
+            let encodedPath = relativePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? relativePath
+            content += "Source: [\(source.path)](\(encodedPath))\n"
+            for task in source.tasks {
+                content += "- [ ] \(task)\n"
+            }
+            content += "\n"
+        }
+        return content
+    }
+
+    private static func titleFromPath(_ path: String) -> String {
+        let fileName = (path as NSString).lastPathComponent
+        let base = (fileName as NSString).deletingPathExtension
+        if !base.isEmpty {
+            return base.replacingOccurrences(of: "-", with: " ")
+        }
+        return path
+    }
+
+    private static func vaultRootURL() throws -> URL {
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw TaskConsolidatorError.documentsDirectoryUnavailable
+        }
+        return documentsURL.appendingPathComponent("vault", isDirectory: true)
+    }
+
+    private static func writeAtomically(text: String, to url: URL) throws {
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+        try Data(text.utf8).write(to: url, options: .atomic)
+    }
+}
+
 enum VaultFileAction: String, Codable {
     case create
     case update
@@ -1100,6 +1292,7 @@ final class ProcessingQueue {
                     )
                 }
             }
+            await TaskConsolidator.refreshIfEnabled(context: context)
             return true
         } catch {
             await markScanError(objectID: objectID, context: context)
