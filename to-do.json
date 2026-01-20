@@ -306,7 +306,7 @@
       "depends_on": [
         "T013"
       ],
-      "updated_at": "2026-01-20T16:27:52Z",
+      "updated_at": "2026-01-20T16:28:42Z",
       "files": [
         "MarginShot/Views/ChatView.swift",
         "to-do.json"
@@ -327,14 +327,14 @@
         "T006",
         "T014"
       ],
-      "updated_at": "2026-01-20T16:40:34Z",
+      "updated_at": "2026-01-20T16:43:26Z",
       "files": [
+        "MarginShot/ChatAgent.swift",
         "MarginShot/ContentView.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/VaultIndexStore.swift",
         "MarginShot/Views/CaptureView.swift",
         "MarginShot/Views/ChatView.swift",
-        "MarginShot/ChatAgent.swift",
-        "MarginShot/VaultIndexStore.swift",
-        "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ]
     },
@@ -342,7 +342,7 @@
       "id": "T016",
       "title": "Create settings screens and basic toggles",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Implement grouped settings for Processing, Sync, Organization, Privacy, and Advanced toggles.",
       "tags": [
         "settings",
@@ -350,6 +350,13 @@
       ],
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-20T16:48:24Z",
+      "files": [
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

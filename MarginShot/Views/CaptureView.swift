@@ -18,6 +18,7 @@ struct CaptureView: View {
     )
     private var inboxScans: FetchedResults<ScanEntity>
     @State private var isInboxPresented = false
+    @State private var isSettingsPresented = false
     @State private var isBatchPromptPresented = false
     @State private var completedBatchId: UUID?
     let onAskAboutBatch: (UUID) -> Void
@@ -66,6 +67,9 @@ struct CaptureView: View {
         .sheet(isPresented: $isInboxPresented) {
             InboxSheet(viewModel: viewModel)
         }
+        .sheet(isPresented: $isSettingsPresented) {
+            SettingsView()
+        }
         .confirmationDialog("Batch queued", isPresented: $isBatchPromptPresented, titleVisibility: .visible) {
             Button("Ask about this") {
                 guard let batchId = completedBatchId else { return }
@@ -85,6 +89,7 @@ struct CaptureView: View {
             statusPill
             Spacer()
             inboxButton
+            settingsButton
         }
     }
 
@@ -119,6 +124,20 @@ struct CaptureView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Inbox \(inboxScans.count)")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            isSettingsPresented = true
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
+                .foregroundColor(.white)
+                .padding(6)
+                .background(Color.black.opacity(0.45), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
     }
 
     private var captureControls: some View {
