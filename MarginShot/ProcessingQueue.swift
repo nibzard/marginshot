@@ -990,7 +990,7 @@ final class ProcessingQueue {
 
     private let persistenceController: PersistenceController
     private let taskIdentifier = "com.example.MarginShot.processing"
-    private let processingQueue = DispatchQueue(label: "marginshot.processing.queue")
+    private let processingLock = NSLock()
     private var isProcessing = false
 
     private var preferences: ProcessingPreferences {
@@ -1040,32 +1040,44 @@ final class ProcessingQueue {
             return
         }
 
-        let processing = Task { [weak self] in
-            guard let self else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            let success = await self.processPendingBatches()
-            task.setTaskCompleted(success: success)
+        guard let processing = startProcessingIfNeeded() else {
+            task.setTaskCompleted(success: true)
+            return
         }
 
-        processingTask.expirationHandler = {
-            processing.cancel()
+        processingTask.expirationHandler = { processing.cancel() }
+
+        Task {
+            let success = await processing.value
+            task.setTaskCompleted(success: success)
         }
     }
 
-    private func processPendingBatchesIfNeeded() {
-        processingQueue.async { [weak self] in
-            guard let self else { return }
-            guard !self.isProcessing else { return }
-            self.isProcessing = true
-            Task {
-                _ = await self.processPendingBatches()
-                self.processingQueue.async { [weak self] in
-                    self?.isProcessing = false
-                }
-            }
+    private func startProcessingIfNeeded() -> Task<Bool, Never>? {
+        guard beginProcessingIfNeeded() else { return nil }
+        return Task { [weak self] in
+            defer { self?.endProcessing() }
+            guard let self else { return false }
+            return await self.processPendingBatches()
         }
+    }
+
+    private func beginProcessingIfNeeded() -> Bool {
+        processingLock.lock()
+        defer { processingLock.unlock() }
+        guard !isProcessing else { return false }
+        isProcessing = true
+        return true
+    }
+
+    private func endProcessing() {
+        processingLock.lock()
+        isProcessing = false
+        processingLock.unlock()
+    }
+
+    private func processPendingBatchesIfNeeded() {
+        _ = startProcessingIfNeeded()
     }
 
     private func hasRequiredPower() async -> Bool {

@@ -875,7 +875,7 @@
         "MarginShot/Views/ChatView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T21:25:02Z"
+      "updated_at": "2026-01-20T21:27:36Z"
     },
     {
       "id": "T041",
@@ -892,7 +892,7 @@
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T21:28:59Z"
+      "updated_at": "2026-01-20T21:30:31Z"
     },
     {
       "id": "T042",
@@ -908,7 +908,7 @@
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T21:32:09Z"
+      "updated_at": "2026-01-20T21:35:31Z"
     },
     {
       "id": "T043",
@@ -925,7 +925,55 @@
         "MarginShot/Views/ChatView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T21:38:55Z"
+      "updated_at": "2026-01-20T21:41:59Z"
+    },
+    {
+      "id": "T044",
+      "title": "Prevent concurrent processing runs across background and foreground triggers",
+      "priority": 2,
+      "status": "done",
+      "details": "Ensure ProcessingQueue uses a single shared guard when invoked from BGTaskScheduler and foreground enqueue calls to avoid double-processing batches or racing state updates.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T22:01:14Z"
+    },
+    {
+      "id": "T045",
+      "title": "Mirror deletions in sync destinations",
+      "priority": 3,
+      "status": "todo",
+      "details": "FolderSyncer and GitHubSyncer currently only upload/copy changed files; add deletion handling so removed vault files are deleted remotely (with safeguards against non-vault files).",
+      "tags": [
+        "sync",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ]
+    },
+    {
+      "id": "T046",
+      "title": "Define disable-encryption behavior and rebuild search index",
+      "priority": 3,
+      "status": "todo",
+      "details": "When local encryption is turned off, either decrypt the vault or warn that files remain encrypted; ensure FTS search is rebuilt when encryption is disabled so retrieval returns full-text results.",
+      "tags": [
+        "privacy",
+        "security",
+        "search"
+      ],
+      "files": [
+        "MarginShot/VaultFileStore.swift",
+        "MarginShot/VaultIndexStore.swift",
+        "MarginShot/Views/SettingsView.swift"
+      ]
     }
   ]
 }
