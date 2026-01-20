@@ -1010,9 +1010,10 @@
       ],
       "files": [
         "MarginShot/ProcessingQueue.swift",
+        "MarginShot/SyncStatusStore.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T22:57:37Z"
+      "updated_at": "2026-01-20T23:10:40Z"
     }
   ]
 }

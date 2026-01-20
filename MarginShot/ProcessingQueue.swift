@@ -1823,10 +1823,17 @@ actor SyncCoordinator {
                 try await GitHubSyncer.syncVault()
             }
             await SyncStatusStore.shared.markIdle()
+        } catch let syncError as GitHubSyncError {
+            if case .offline = syncError {
+                print("Sync skipped (\(trigger.rawValue)): offline")
+                await SyncStatusStore.shared.markIdleSkippingSync()
+                return
+            }
+            print("Sync failed (\(trigger.rawValue)): \(syncError)")
+            await SyncStatusStore.shared.markError(syncError.localizedDescription)
         } catch {
             print("Sync failed (\(trigger.rawValue)): \(error)")
-            let message = (error as? GitHubSyncError)?.localizedDescription ?? "Sync failed. \(error.localizedDescription)"
-            await SyncStatusStore.shared.markError(message)
+            await SyncStatusStore.shared.markError("Sync failed. \(error.localizedDescription)")
         }
     }
 
@@ -1914,6 +1921,7 @@ enum GitHubSyncError: LocalizedError {
     case serverError(Int)
     case apiError(String)
     case transportError(String)
+    case offline
 
     var errorDescription: String? {
         switch self {
@@ -1933,6 +1941,8 @@ enum GitHubSyncError: LocalizedError {
             return "GitHub sync failed. \(message)"
         case .transportError(let message):
             return "GitHub sync failed. \(message)"
+        case .offline:
+            return "GitHub sync skipped because you're offline."
         }
     }
 
@@ -1940,6 +1950,8 @@ enum GitHubSyncError: LocalizedError {
         switch self {
         case .serverError, .transportError:
             return true
+        case .offline:
+            return false
         default:
             return false
         }
@@ -2045,7 +2057,7 @@ enum GitHubSyncer {
         } catch let apiError as GitHubAPIError {
             throw mapGitHubError(apiError)
         } catch {
-            throw GitHubSyncError.transportError(error.localizedDescription)
+            throw mapTransportError(error)
         }
     }
 
@@ -2082,7 +2094,7 @@ enum GitHubSyncer {
             } catch let apiError as GitHubAPIError {
                 throw mapGitHubError(apiError)
             } catch {
-                throw GitHubSyncError.transportError(error.localizedDescription)
+                throw mapTransportError(error)
             }
         }
     }
@@ -2146,6 +2158,22 @@ enum GitHubSyncer {
             return .apiError(message)
         default:
             return .transportError(error.localizedDescription)
+        }
+    }
+
+    private static func mapTransportError(_ error: Error) -> GitHubSyncError {
+        if let urlError = error as? URLError, isOfflineError(urlError) {
+            return .offline
+        }
+        return .transportError(error.localizedDescription)
+    }
+
+    private static func isOfflineError(_ error: URLError) -> Bool {
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost:
+            return true
+        default:
+            return false
         }
     }
 

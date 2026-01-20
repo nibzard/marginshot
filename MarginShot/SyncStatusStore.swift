@@ -49,6 +49,16 @@ final class SyncStatusStore: ObservableObject {
         clearError()
     }
 
+    func markIdleSkippingSync() {
+        guard destination != .off else {
+            state = .off
+            return
+        }
+        state = .idle
+        lastErrorMessage = nil
+        lastErrorAt = nil
+    }
+
     func markError(_ message: String, at date: Date = Date()) {
         guard destination != .off else {
             state = .off
