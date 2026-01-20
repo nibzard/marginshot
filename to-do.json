@@ -898,15 +898,17 @@
       "id": "T042",
       "title": "Refresh task consolidation after apply-to-vault updates",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "VaultApplyService updates index and topic pages but does not re-run TaskConsolidator; run refresh after apply so Tasks.md reflects chat-applied edits.",
       "tags": [
         "vault",
         "tasks"
       ],
       "files": [
-        "MarginShot/ProcessingQueue.swift"
-      ]
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T21:32:09Z"
     },
     {
       "id": "T043",

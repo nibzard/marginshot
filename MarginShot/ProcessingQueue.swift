@@ -944,6 +944,7 @@ enum VaultApplyService {
             }
         }
         await TopicPageStore.refreshIfEnabled(context: nil)
+        await TaskConsolidator.refreshIfEnabled(context: nil)
     }
 
     private static func resolvedNoteMeta(for operation: VaultFileOperation, content: String) -> NoteMeta {
