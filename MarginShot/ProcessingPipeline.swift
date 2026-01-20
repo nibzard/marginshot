@@ -22,8 +22,8 @@ struct ProcessingContextSnapshot {
 }
 
 enum ProcessingContextLoader {
-    static func load() -> ProcessingContextSnapshot {
-        let systemRules = SystemRulesStore.loadForPrompt()
+    static func load(rulesOverrides: String? = nil) -> ProcessingContextSnapshot {
+        let systemRules = SystemRulesStore.loadForPrompt(overrides: rulesOverrides)
         var indexJSON: String?
         var structureText: String?
         indexJSON = readVaultText(path: "_system/INDEX.json")

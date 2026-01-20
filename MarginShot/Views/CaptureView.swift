@@ -10,8 +10,13 @@ import Vision
 struct CaptureView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("selectedNotebookId") private var selectedNotebookIdRaw = ""
     @StateObject private var viewModel = CaptureViewModel()
     @State private var hasBoundContext = false
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \NotebookEntity.createdAt, ascending: true)]
+    )
+    private var notebooks: FetchedResults<NotebookEntity>
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \ScanEntity.createdAt, ascending: false)],
         predicate: NSPredicate(format: "status != %@", ScanStatus.filed.rawValue)
@@ -19,12 +24,39 @@ struct CaptureView: View {
     private var inboxScans: FetchedResults<ScanEntity>
     @State private var isInboxPresented = false
     @State private var isSettingsPresented = false
+    @State private var isNotebookPickerPresented = false
     @State private var isBatchPromptPresented = false
     @State private var completedBatchId: UUID?
     let onAskAboutBatch: (UUID) -> Void
 
     init(onAskAboutBatch: @escaping (UUID) -> Void = { _ in }) {
         self.onAskAboutBatch = onAskAboutBatch
+    }
+
+    private var selectedNotebookId: UUID? {
+        UUID(uuidString: selectedNotebookIdRaw)
+    }
+
+    private var resolvedNotebook: NotebookEntity? {
+        if let selectedNotebookId,
+           let match = notebooks.first(where: { $0.id == selectedNotebookId }) {
+            return match
+        }
+        if let defaultNotebook = notebooks.first(where: { $0.isDefault }) {
+            return defaultNotebook
+        }
+        return notebooks.first
+    }
+
+    private var resolvedNotebookName: String {
+        resolvedNotebook?.name ?? "Default"
+    }
+
+    private var notebookSelectionBinding: Binding<UUID?> {
+        Binding(
+            get: { UUID(uuidString: selectedNotebookIdRaw) },
+            set: { selectedNotebookIdRaw = $0?.uuidString ?? "" }
+        )
     }
 
     var body: some View {
@@ -59,13 +91,24 @@ struct CaptureView: View {
                 viewModel.bind(context: context)
                 hasBoundContext = true
             }
+            viewModel.ensureDefaultNotebookIfNeeded()
+            refreshNotebookSelection()
             viewModel.startSessionIfPossible()
         }
         .onChange(of: scenePhase) { phase in
             viewModel.handleScenePhase(phase)
         }
+        .onChange(of: selectedNotebookIdRaw) { _ in
+            viewModel.setSelectedNotebookID(selectedNotebookId)
+        }
+        .onChange(of: notebooks.count) { _ in
+            refreshNotebookSelection()
+        }
         .sheet(isPresented: $isInboxPresented) {
             InboxSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $isNotebookPickerPresented) {
+            NotebookPickerView(selectedNotebookId: notebookSelectionBinding)
         }
         .sheet(isPresented: $isSettingsPresented) {
             SettingsView()
@@ -84,9 +127,18 @@ struct CaptureView: View {
         }
     }
 
+    private func refreshNotebookSelection() {
+        guard let resolvedNotebook else { return }
+        if selectedNotebookIdRaw != resolvedNotebook.id.uuidString {
+            selectedNotebookIdRaw = resolvedNotebook.id.uuidString
+        }
+        viewModel.setSelectedNotebookID(resolvedNotebook.id)
+    }
+
     private var topBar: some View {
         HStack(spacing: 12) {
             statusPill
+            notebookButton
             Spacer()
             inboxButton
             settingsButton
@@ -105,6 +157,25 @@ struct CaptureView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    private var notebookButton: some View {
+        Button {
+            isNotebookPickerPresented = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "book.closed")
+                Text(resolvedNotebookName)
+            }
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.45), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Notebook \(resolvedNotebookName)")
     }
 
     private var inboxButton: some View {
@@ -301,6 +372,11 @@ struct InboxBatchHeader: View {
             Text(batch.statusLabel)
                 .font(.caption)
                 .foregroundColor(.secondary)
+            if let notebookName = batch.notebook?.name {
+                Text(notebookName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             Text("\(scanCount) scans")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -423,6 +499,7 @@ final class CaptureViewModel: ObservableObject {
     @Published var isProcessing: Bool = false
     @Published var permissionState: CameraPermissionState = .notDetermined
     @Published var detectedQuad: DocumentQuad?
+    @Published var selectedNotebookID: UUID?
 
     let cameraController: CameraController
 
@@ -498,6 +575,37 @@ final class CaptureViewModel: ObservableObject {
     func bind(context: NSManagedObjectContext) {
         self.context = context
         refreshPermission()
+    }
+
+    func setSelectedNotebookID(_ id: UUID?) {
+        selectedNotebookID = id
+    }
+
+    func ensureDefaultNotebookIfNeeded() {
+        guard let context else { return }
+        let request = NotebookEntity.fetchRequest()
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "isDefault == YES")
+        if let _ = try? context.fetch(request).first {
+            return
+        }
+
+        let fallbackRequest = NotebookEntity.fetchRequest()
+        fallbackRequest.fetchLimit = 1
+        if let existing = try? context.fetch(fallbackRequest).first {
+            existing.isDefault = true
+            existing.updatedAt = Date()
+            try? context.save()
+            return
+        }
+
+        let notebook = NotebookEntity(context: context)
+        notebook.id = UUID()
+        notebook.name = "Default"
+        notebook.isDefault = true
+        notebook.createdAt = Date()
+        notebook.updatedAt = Date()
+        try? context.save()
     }
 
     func requestPermission() {
@@ -738,7 +846,7 @@ final class CaptureViewModel: ObservableObject {
             return existing
         }
 
-        let notebook = try fetchOrCreateDefaultNotebook(in: context)
+        let notebook = try fetchNotebook(in: context)
         let batch = BatchEntity(context: context)
         batch.id = UUID()
         batch.createdAt = Date()
@@ -746,6 +854,18 @@ final class CaptureViewModel: ObservableObject {
         batch.notebook = notebook
         currentBatchObjectID = batch.objectID
         return batch
+    }
+
+    private func fetchNotebook(in context: NSManagedObjectContext) throws -> NotebookEntity {
+        if let selectedNotebookID {
+            let request = NotebookEntity.fetchRequest()
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", selectedNotebookID as CVarArg)
+            if let notebook = try context.fetch(request).first {
+                return notebook
+            }
+        }
+        return try fetchOrCreateDefaultNotebook(in: context)
     }
 
     private func fetchOrCreateDefaultNotebook(in context: NSManagedObjectContext) throws -> NotebookEntity {
@@ -756,11 +876,21 @@ final class CaptureViewModel: ObservableObject {
             return notebook
         }
 
+        let anyRequest = NotebookEntity.fetchRequest()
+        anyRequest.fetchLimit = 1
+        if let notebook = try context.fetch(anyRequest).first {
+            notebook.isDefault = true
+            notebook.updatedAt = Date()
+            try? context.save()
+            return notebook
+        }
+
         let notebook = NotebookEntity(context: context)
         notebook.id = UUID()
         notebook.name = "Default"
         notebook.isDefault = true
         notebook.createdAt = Date()
+        notebook.updatedAt = Date()
         return notebook
     }
 }

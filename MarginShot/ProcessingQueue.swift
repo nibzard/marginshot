@@ -1097,7 +1097,6 @@ final class ProcessingQueue {
             return false
         }
 
-        let processingContext = ProcessingContextLoader.load()
         let mode = preferences.qualityMode
         var allSucceeded = true
         for objectID in batchIDs {
@@ -1106,8 +1105,7 @@ final class ProcessingQueue {
                 objectID: objectID,
                 context: context,
                 client: client,
-                mode: mode,
-                processingContext: processingContext
+                mode: mode
             )
             if !success {
                 allSucceeded = false
@@ -1121,25 +1119,27 @@ final class ProcessingQueue {
         objectID: NSManagedObjectID,
         context: NSManagedObjectContext,
         client: GeminiClient,
-        mode: ProcessingQualityMode,
-        processingContext: ProcessingContextSnapshot
+        mode: ProcessingQualityMode
     ) async -> Bool {
-        let scanIDs: [NSManagedObjectID] = await context.perform {
+        let batchDetails: (scanIDs: [NSManagedObjectID], rulesOverrides: String?) = await context.perform {
             guard let batch = try? context.existingObject(with: objectID) as? BatchEntity else {
-                return []
+                return ([], nil)
             }
             batch.status = BatchStatus.processing.rawValue
             batch.updatedAt = Date()
             do {
                 try context.save()
             } catch {
-                return []
+                return ([], nil)
             }
-            return batch.scans.map { $0.objectID }
+            return (batch.scans.map { $0.objectID }, batch.notebook?.rulesOverrides)
         }
 
+        guard !batchDetails.scanIDs.isEmpty else { return false }
+        let processingContext = ProcessingContextLoader.load(rulesOverrides: batchDetails.rulesOverrides)
+
         var batchSucceeded = true
-        for scanID in scanIDs {
+        for scanID in batchDetails.scanIDs {
             if Task.isCancelled { return false }
             let success = await processScan(
                 objectID: scanID,

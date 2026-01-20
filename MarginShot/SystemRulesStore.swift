@@ -22,10 +22,27 @@ enum SystemRulesStore {
     }
 
     static func loadForPrompt(maxCharacters: Int = 8000) -> String {
-        let rules = load()
-        guard rules.count > maxCharacters else { return rules }
-        let endIndex = rules.index(rules.startIndex, offsetBy: maxCharacters)
-        return String(rules[..<endIndex])
+        loadForPrompt(overrides: nil, maxCharacters: maxCharacters)
+    }
+
+    static func loadForPrompt(overrides: String?, maxCharacters: Int = 8000) -> String {
+        let baseRules = load()
+        let trimmedOverrides = overrides?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let combined: String
+        if trimmedOverrides.isEmpty {
+            combined = baseRules
+        } else {
+            combined = """
+            \(baseRules)
+
+            # Notebook Rules Overrides
+
+            \(trimmedOverrides)
+            """
+        }
+        guard combined.count > maxCharacters else { return combined }
+        let endIndex = combined.index(combined.startIndex, offsetBy: maxCharacters)
+        return String(combined[..<endIndex])
     }
 
     static func save(_ rules: String) throws {

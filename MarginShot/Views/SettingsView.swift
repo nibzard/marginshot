@@ -240,7 +240,7 @@ struct SettingsView: View {
                         SystemRulesEditorView()
                     }
                 } footer: {
-                    Text("Tune how notes are structured and connected. Single default notebook for now; multi-notebook support is planned.")
+                    Text("Tune how notes are structured and connected. Manage notebooks and overrides from Capture.")
                 }
 
                 Section("Privacy") {

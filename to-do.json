@@ -595,7 +595,7 @@
       "id": "T027",
       "title": "Support multiple notebooks",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Implement notebook selection in capture, per-notebook rules, and overrides in data model.",
       "tags": [
         "notebooks",
@@ -605,6 +605,17 @@
         "T004",
         "T016",
         "T006"
+      ],
+      "updated_at": "2026-01-20T19:34:34Z",
+      "files": [
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/SystemRulesStore.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Views/NotebookPickerView.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
       ]
     },
     {
