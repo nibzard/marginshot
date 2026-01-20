@@ -875,9 +875,16 @@ final class CaptureViewModel: ObservableObject {
         let pendingScans = batch.scans.filter { ScanStatus(rawValue: $0.status) != .filed }
         guard !pendingScans.isEmpty else { return }
 
+        var scansNeedingPreprocess: [String] = []
         for scan in pendingScans {
-            if ScanStatus(rawValue: scan.status) == .error, scan.processedImagePath != nil {
-                scan.status = ScanStatus.captured.rawValue
+            guard let status = ScanStatus(rawValue: scan.status) else { continue }
+            if status == .error || status == .preprocessing {
+                if scan.processedImagePath == nil {
+                    scan.status = ScanStatus.preprocessing.rawValue
+                    scansNeedingPreprocess.append(scan.imagePath)
+                } else {
+                    scan.status = ScanStatus.captured.rawValue
+                }
             }
         }
         batch.status = BatchStatus.queued.rawValue
@@ -885,10 +892,47 @@ final class CaptureViewModel: ObservableObject {
 
         do {
             try context.save()
-            statusText = "Batch queued"
-            ProcessingQueue.shared.enqueuePendingProcessing()
+            if scansNeedingPreprocess.isEmpty {
+                statusText = "Batch queued"
+                ProcessingQueue.shared.enqueuePendingProcessing()
+                return
+            }
         } catch {
             statusText = "Retry failed"
+            return
+        }
+
+        statusText = "Retrying batch..."
+        isProcessing = true
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            for rawPath in scansNeedingPreprocess {
+                do {
+                    let rawURL = try VaultScanStore.url(for: rawPath)
+                    let rawData = try VaultFileStore.readData(from: rawURL)
+                    let processed = try DocumentProcessingPipeline.process(imageData: rawData)
+                    let processedPath = try VaultScanStore.saveProcessedScan(
+                        processedData: processed.processedData,
+                        rawPath: rawPath
+                    )
+                    await MainActor.run {
+                        self?.updateScanStatus(
+                            forRawPath: rawPath,
+                            status: .captured,
+                            processedPath: processedPath
+                        )
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
+                    }
+                }
+            }
+            await MainActor.run {
+                self?.statusText = "Batch queued"
+                self?.isProcessing = false
+                ProcessingQueue.shared.enqueuePendingProcessing()
+            }
         }
     }
 

@@ -824,21 +824,23 @@
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T20:54:55Z"
+      "updated_at": "2026-01-20T20:57:55Z"
     },
     {
       "id": "T038",
       "title": "Make batch retry reprocess scans missing processed images",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "In Capture inbox retry, handle scans in error/preprocessing states without processedImagePath by rerunning DocumentProcessingPipeline from raw images (similar to retryScan) so batch retry can recover all failed scans.",
       "tags": [
         "capture",
         "reliability"
       ],
       "files": [
-        "MarginShot/Views/CaptureView.swift"
-      ]
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T21:03:19Z"
     },
     {
       "id": "T039",
