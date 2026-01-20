@@ -1090,7 +1090,7 @@ final class ProcessingQueue {
         do {
             client = try GeminiClient.makeDefault()
         } catch {
-            await markBatchesFailed(batchIDs, context: context)
+            await markBatchesBlocked(batchIDs, context: context)
             return false
         }
 
@@ -1160,7 +1160,7 @@ final class ProcessingQueue {
 
         await context.perform {
             guard let batch = try? context.existingObject(with: objectID) as? BatchEntity else { return }
-            batch.status = hasScanError ? BatchStatus.error.rawValue : BatchStatus.done.rawValue
+            batch.status = hasScanError ? BatchStatus.blocked.rawValue : BatchStatus.done.rawValue
             batch.updatedAt = Date()
             try? context.save()
         }
@@ -1435,17 +1435,12 @@ final class ProcessingQueue {
         }
     }
 
-    private func markBatchesFailed(_ batchIDs: [NSManagedObjectID], context: NSManagedObjectContext) async {
+    private func markBatchesBlocked(_ batchIDs: [NSManagedObjectID], context: NSManagedObjectContext) async {
         await context.perform {
             for objectID in batchIDs {
                 guard let batch = try? context.existingObject(with: objectID) as? BatchEntity else { continue }
-                batch.status = BatchStatus.error.rawValue
+                batch.status = BatchStatus.blocked.rawValue
                 batch.updatedAt = Date()
-                for scan in batch.scans {
-                    if ScanStatus(rawValue: scan.status) != .filed {
-                        scan.status = ScanStatus.error.rawValue
-                    }
-                }
             }
             try? context.save()
         }

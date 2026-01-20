@@ -323,7 +323,12 @@ struct InboxSheet: View {
                                 }
                             }
                         } header: {
-                            InboxBatchHeader(batch: section.batch, scanCount: section.scans.count)
+                            InboxBatchHeader(
+                                batch: section.batch,
+                                scanCount: section.scans.count
+                            ) {
+                                viewModel.retryBatch(section.batch)
+                            }
                         }
                     }
                 }
@@ -363,6 +368,7 @@ struct InboxSheet: View {
 struct InboxBatchHeader: View {
     let batch: BatchEntity
     let scanCount: Int
+    let onRetry: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -380,6 +386,13 @@ struct InboxBatchHeader: View {
             Text("\(scanCount) scans")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            if batch.statusEnum == .blocked || batch.statusEnum == .error {
+                Button("Retry") {
+                    onRetry()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 }
@@ -810,6 +823,11 @@ final class CaptureViewModel: ObservableObject {
         guard !isProcessing else { return }
         guard let context else { return }
 
+        if scan.processedImagePath != nil {
+            requeueProcessing(for: scan, context: context)
+            return
+        }
+
         let rawPath = scan.imagePath
         scan.status = ScanStatus.preprocessing.rawValue
         statusText = "Retrying scan..."
@@ -838,6 +856,7 @@ final class CaptureViewModel: ObservableObject {
                         status: .captured,
                         processedPath: processedPath
                     )
+                    self?.queueBatchProcessing(forRawPath: rawPath)
                     self?.statusText = "Retry complete"
                     self?.isProcessing = false
                 }
@@ -849,6 +868,58 @@ final class CaptureViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    func retryBatch(_ batch: BatchEntity) {
+        guard let context else { return }
+        let pendingScans = batch.scans.filter { ScanStatus(rawValue: $0.status) != .filed }
+        guard !pendingScans.isEmpty else { return }
+
+        for scan in pendingScans {
+            if ScanStatus(rawValue: scan.status) == .error, scan.processedImagePath != nil {
+                scan.status = ScanStatus.captured.rawValue
+            }
+        }
+        batch.status = BatchStatus.queued.rawValue
+        batch.updatedAt = Date()
+
+        do {
+            try context.save()
+            statusText = "Batch queued"
+            ProcessingQueue.shared.enqueuePendingProcessing()
+        } catch {
+            statusText = "Retry failed"
+        }
+    }
+
+    private func requeueProcessing(for scan: ScanEntity, context: NSManagedObjectContext) {
+        scan.status = ScanStatus.captured.rawValue
+        if let batch = scan.batch {
+            batch.status = BatchStatus.queued.rawValue
+            batch.updatedAt = Date()
+        }
+
+        do {
+            try context.save()
+            statusText = "Queued for processing"
+            ProcessingQueue.shared.enqueuePendingProcessing()
+        } catch {
+            statusText = "Retry failed"
+        }
+    }
+
+    private func queueBatchProcessing(forRawPath rawPath: String) {
+        guard let context else { return }
+        let request = ScanEntity.fetchRequest()
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "imagePath == %@", rawPath)
+        guard let scan = try? context.fetch(request).first else { return }
+        if let batch = scan.batch {
+            batch.status = BatchStatus.queued.rawValue
+            batch.updatedAt = Date()
+        }
+        try? context.save()
+        ProcessingQueue.shared.enqueuePendingProcessing()
     }
 
     private func resetBatchSession() {
@@ -1297,8 +1368,10 @@ extension BatchStatus {
             return "Processing"
         case .done:
             return "Done"
+        case .blocked:
+            return "Needs retry"
         case .error:
-            return "Error"
+            return "Needs retry"
         }
     }
 }

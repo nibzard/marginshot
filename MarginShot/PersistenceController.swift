@@ -311,6 +311,7 @@ public enum BatchStatus: String {
     case queued
     case processing
     case done
+    case blocked
     case error
 }
 

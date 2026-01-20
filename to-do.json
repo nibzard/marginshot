@@ -651,21 +651,21 @@
       "depends_on": [
         "T019"
       ],
-      "updated_at": "2026-01-20T20:08:18Z",
+      "updated_at": "2026-01-20T20:09:29Z",
       "files": [
-        "MarginShot/VaultFileStore.swift",
-        "MarginShot/GeminiClient.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
         "MarginShot/ContentView.swift",
-        "MarginShot/SystemRulesStore.swift",
+        "MarginShot/GeminiClient.swift",
         "MarginShot/ProcessingPipeline.swift",
         "MarginShot/ProcessingQueue.swift",
-        "MarginShot/VaultIndexStore.swift",
+        "MarginShot/SystemRulesStore.swift",
         "MarginShot/TopicPageStore.swift",
-        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/VaultFileStore.swift",
+        "MarginShot/VaultIndexStore.swift",
         "MarginShot/Views/ApplyReviewView.swift",
+        "MarginShot/Views/CaptureView.swift",
         "MarginShot/Views/ChatView.swift",
         "MarginShot/Views/SettingsView.swift",
-        "MarginShot.xcodeproj/project.pbxproj",
         "to-do.json"
       ]
     },
@@ -735,6 +735,58 @@
         "MarginShot/Views/SettingsView.swift",
         "SPECS.md",
         "to-do.json"
+      ]
+    },
+    {
+      "id": "T033",
+      "title": "Honor auto-process inbox toggle in processing scheduler",
+      "priority": 2,
+      "status": "todo",
+      "details": "Gate enqueue/background processing on the auto-process setting and resume queued work when re-enabled.",
+      "tags": [
+        "processing",
+        "settings"
+      ]
+    },
+    {
+      "id": "T034",
+      "title": "Respect linking toggle for wiki-links and entity page creation",
+      "priority": 3,
+      "status": "todo",
+      "details": "Disable link injection, entity page creation, and prompt instructions when linking is turned off.",
+      "tags": [
+        "organization",
+        "vault",
+        "llm"
+      ]
+    },
+    {
+      "id": "T035",
+      "title": "Make processing failures retryable instead of permanent errors",
+      "priority": 1,
+      "status": "done",
+      "details": "If the Gemini API key is missing or a scan fails, keep batches queued/blocked and provide a retry action that requeues LLM processing.",
+      "tags": [
+        "processing",
+        "reliability"
+      ],
+      "updated_at": "2026-01-20T20:28:23Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/PersistenceController.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T036",
+      "title": "Process scans in deterministic order within a batch",
+      "priority": 3,
+      "status": "todo",
+      "details": "Sort batch scans by page number or capture time before processing so daily notes append in the right sequence.",
+      "tags": [
+        "processing",
+        "data"
       ]
     }
   ]
