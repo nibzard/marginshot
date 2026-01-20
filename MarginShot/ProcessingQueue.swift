@@ -2219,10 +2219,17 @@ enum GitHubAPI {
         return url
     }
 
+    private static let rfc3986AllowedCharacters: CharacterSet = {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return allowed
+    }()
+
     private static func formURLEncoded(_ parameters: [String: String]) -> String {
         parameters.map { key, value in
-            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
-            return "\(key)=\(encodedValue)"
+            let encodedKey = key.addingPercentEncoding(withAllowedCharacters: rfc3986AllowedCharacters) ?? key
+            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: rfc3986AllowedCharacters) ?? value
+            return "\(encodedKey)=\(encodedValue)"
         }
         .joined(separator: "&")
     }

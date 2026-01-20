@@ -881,7 +881,7 @@
       "id": "T041",
       "title": "Use proper form encoding for GitHub OAuth token exchange",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "GitHubAPI.exchangeCodeForToken builds an application/x-www-form-urlencoded body with urlQueryAllowed encoding. Switch to RFC 3986-compliant percent encoding so redirect_uri and verifier characters are safely encoded.",
       "tags": [
         "github",
@@ -889,8 +889,10 @@
         "network"
       ],
       "files": [
-        "MarginShot/ProcessingQueue.swift"
-      ]
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T21:28:59Z"
     },
     {
       "id": "T042",
