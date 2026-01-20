@@ -914,15 +914,18 @@
       "id": "T043",
       "title": "Preserve Gemini API key if Keychain migration fails",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "GeminiConfiguration.load removes GeminiAPIKey from UserDefaults even if Keychain save fails; only remove after a successful Keychain write and surface failure.",
       "tags": [
         "security",
         "settings"
       ],
       "files": [
-        "MarginShot/GeminiClient.swift"
-      ]
+        "MarginShot/GeminiClient.swift",
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T21:38:55Z"
     }
   ]
 }

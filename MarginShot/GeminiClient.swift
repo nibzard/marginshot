@@ -4,6 +4,7 @@ import Security
 enum GeminiClientError: Error, LocalizedError {
     case missingAPIKey
     case invalidURL
+    case keychainSaveFailed
     case requestFailed(statusCode: Int, message: String?)
     case decodingFailed
     case emptyResponse
@@ -16,6 +17,8 @@ enum GeminiClientError: Error, LocalizedError {
             return "Missing Gemini API key."
         case .invalidURL:
             return "Gemini endpoint URL is invalid."
+        case .keychainSaveFailed:
+            return "Failed to save Gemini API key to Keychain. Please re-save it in Settings."
         case .requestFailed(let statusCode, let message):
             if let message {
                 return "Gemini request failed (\(statusCode)): \(message)"
@@ -38,6 +41,8 @@ enum GeminiClientError: Error, LocalizedError {
             return [408, 409, 425, 429, 500, 502, 503, 504].contains(statusCode)
         case .network(let error):
             return error.isRetryable
+        case .keychainSaveFailed:
+            return false
         default:
             return false
         }
@@ -65,8 +70,14 @@ struct GeminiConfiguration {
         if storedAPIKey == nil,
            let candidate = defaultsAPIKey ?? plistAPIKey,
            !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? KeychainStore.saveString(candidate, forKey: keychainKey)
-            userDefaults.removeObject(forKey: "GeminiAPIKey")
+            do {
+                try KeychainStore.saveString(candidate, forKey: keychainKey)
+                if defaultsAPIKey != nil {
+                    userDefaults.removeObject(forKey: "GeminiAPIKey")
+                }
+            } catch {
+                throw GeminiClientError.keychainSaveFailed
+            }
         }
         let model = userDefaults.string(forKey: "GeminiModelName")
             ?? bundle.object(forInfoDictionaryKey: "GeminiModelName") as? String

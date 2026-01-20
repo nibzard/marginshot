@@ -323,6 +323,8 @@ final class ChatViewModel: ObservableObject {
         switch error {
         case .missingAPIKey:
             return "Chat isn't configured yet. Add a Gemini API key in Settings to continue."
+        case .keychainSaveFailed:
+            return "Chat couldn't store your API key securely. Open Settings and re-save your key."
         case .requestFailed(_, let message):
             if let message {
                 return "Chat request failed. \(message)"
