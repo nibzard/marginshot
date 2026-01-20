@@ -41,7 +41,7 @@ enum ProcessingContextLoader {
     private static func readVaultText(path: String, maxCharacters: Int = 8000) -> String? {
         do {
             let url = try VaultScanStore.url(for: path)
-            let contents = try String(contentsOf: url, encoding: .utf8)
+            let contents = try VaultFileStore.readText(from: url)
             if contents.count > maxCharacters {
                 let endIndex = contents.index(contents.startIndex, offsetBy: maxCharacters)
                 return String(contents[..<endIndex])

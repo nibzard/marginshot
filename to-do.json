@@ -642,7 +642,7 @@
       "id": "T029",
       "title": "Implement local encryption option",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Encrypt vault data at rest if supported and manage keys securely.",
       "tags": [
         "security",
@@ -650,6 +650,23 @@
       ],
       "depends_on": [
         "T019"
+      ],
+      "updated_at": "2026-01-20T20:08:18Z",
+      "files": [
+        "MarginShot/VaultFileStore.swift",
+        "MarginShot/GeminiClient.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/SystemRulesStore.swift",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/VaultIndexStore.swift",
+        "MarginShot/TopicPageStore.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Views/ApplyReviewView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {
@@ -666,14 +683,14 @@
         "T009",
         "T012"
       ],
-      "updated_at": "2026-01-20T19:48:28Z",
+      "updated_at": "2026-01-20T19:49:31Z",
       "files": [
-        "MarginShot/PerformanceMetricsStore.swift",
-        "MarginShot/Views/CaptureView.swift",
-        "MarginShot/ProcessingQueue.swift",
-        "MarginShot/ChatAgent.swift",
-        "MarginShot/Views/SettingsView.swift",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ChatAgent.swift",
+        "MarginShot/PerformanceMetricsStore.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ]
     },

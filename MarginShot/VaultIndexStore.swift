@@ -81,7 +81,7 @@ final class VaultIndexStore {
         do {
             let rootURL = try vaultRootURL()
             let noteURL = rootURL.appendingPathComponent(notePath)
-            let noteBody = (try? String(contentsOf: noteURL, encoding: .utf8)) ?? ""
+            let noteBody = (try? VaultFileStore.readText(from: noteURL)) ?? ""
             let now = Date()
             var entry = IndexNoteEntry(
                 path: notePath,
@@ -232,7 +232,7 @@ final class VaultIndexStore {
         snapshot.generatedAt = isoFormatter.string(from: updatedAt)
 
         let data = try encoder.encode(snapshot)
-        try data.write(to: indexURL, options: .atomic)
+        try VaultFileStore.writeData(data, to: indexURL)
         return snapshot.notes.count
     }
 
@@ -243,12 +243,12 @@ final class VaultIndexStore {
         snapshot.notes.sort { $0.path < $1.path }
         snapshot.generatedAt = isoFormatter.string(from: updatedAt)
         let data = try encoder.encode(snapshot)
-        try data.write(to: indexURL, options: .atomic)
+        try VaultFileStore.writeData(data, to: indexURL)
         return snapshot.notes.count
     }
 
     private func loadIndexSnapshot(from url: URL) -> IndexSnapshot {
-        guard let data = try? Data(contentsOf: url) else {
+        guard let data = try? VaultFileStore.readData(from: url) else {
             return IndexSnapshot(notes: [])
         }
         if let snapshot = try? decoder.decode(IndexSnapshot.self, from: data) {
@@ -288,10 +288,14 @@ final class VaultIndexStore {
 
         let structureURL = rootURL.appendingPathComponent("_system/STRUCTURE.txt")
         let contents = lines.joined(separator: "\n") + "\n"
-        try contents.write(to: structureURL, atomically: true, encoding: .utf8)
+        try VaultFileStore.writeText(contents, to: structureURL)
     }
 
     private func updateSearchStore(entry: IndexNoteEntry, body: String, rootURL: URL) throws {
+        if VaultFileStore.isEncryptionEnabled() {
+            removeSearchStoreFiles(rootURL: rootURL)
+            return
+        }
         let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
         try fileManager.createDirectory(at: searchURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
@@ -309,6 +313,10 @@ final class VaultIndexStore {
     }
 
     private func removeFromSearchStore(path: String, rootURL: URL) throws {
+        if VaultFileStore.isEncryptionEnabled() {
+            removeSearchStoreFiles(rootURL: rootURL)
+            return
+        }
         let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
         guard fileManager.fileExists(atPath: searchURL.path) else {
             return
@@ -349,6 +357,9 @@ final class VaultIndexStore {
     }
 
     private func searchStore(query: String, rootURL: URL, limit: Int) throws -> [SearchMatch] {
+        if VaultFileStore.isEncryptionEnabled() {
+            return []
+        }
         let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
         guard fileManager.fileExists(atPath: searchURL.path) else {
             return []
@@ -502,7 +513,7 @@ final class VaultIndexStore {
         let metadataPath = VaultScanStore.metadataPath(for: imagePath)
         let metadataURL = rootURL.appendingPathComponent(metadataPath)
         guard fileManager.fileExists(atPath: metadataURL.path),
-              let data = try? Data(contentsOf: metadataURL) else {
+              let data = try? VaultFileStore.readData(from: metadataURL) else {
             return nil
         }
         return try? decoder.decode(BatchMetadataReference.self, from: data)
@@ -614,7 +625,7 @@ final class VaultIndexStore {
 
     private func loadNoteBody(path: String, maxCharacters: Int) -> String? {
         guard let url = try? VaultScanStore.url(for: path),
-              let contents = try? String(contentsOf: url, encoding: .utf8) else {
+              let contents = try? VaultFileStore.readText(from: url) else {
             return nil
         }
         if contents.count > maxCharacters {
@@ -622,6 +633,18 @@ final class VaultIndexStore {
             return String(contents[..<endIndex])
         }
         return contents
+    }
+
+    private func removeSearchStoreFiles(rootURL: URL) {
+        let directory = rootURL.appendingPathComponent("_system")
+        let candidates = [
+            directory.appendingPathComponent("search.sqlite"),
+            directory.appendingPathComponent("search.sqlite-wal"),
+            directory.appendingPathComponent("search.sqlite-shm")
+        ]
+        for url in candidates where fileManager.fileExists(atPath: url.path) {
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     private func withSQLite<T>(_ work: () throws -> T) throws -> T {

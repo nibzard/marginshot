@@ -826,7 +826,7 @@ final class CaptureViewModel: ObservableObject {
         Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 let rawURL = try VaultScanStore.url(for: rawPath)
-                let rawData = try Data(contentsOf: rawURL)
+                let rawData = try VaultFileStore.readData(from: rawURL)
                 let processed = try DocumentProcessingPipeline.process(imageData: rawData)
                 let processedPath = try VaultScanStore.saveProcessedScan(
                     processedData: processed.processedData,
@@ -1196,12 +1196,12 @@ enum VaultScanStore {
         let rawURL = directoryURL.appendingPathComponent(rawFileName)
         let processedURL = directoryURL.appendingPathComponent(processedFileName)
 
-        try rawData.write(to: rawURL, options: .atomic)
+        try VaultFileStore.writeData(rawData, to: rawURL)
 
         let rawPath = "\(relativeDirectory)/\(rawFileName)"
         var processedPath: String?
         if let processedData {
-            try processedData.write(to: processedURL, options: .atomic)
+            try VaultFileStore.writeData(processedData, to: processedURL)
             processedPath = "\(relativeDirectory)/\(processedFileName)"
         }
 
@@ -1211,7 +1211,7 @@ enum VaultScanStore {
     static func saveProcessedScan(processedData: Data, rawPath: String) throws -> String {
         let processedPath = processedPath(from: rawPath)
         let processedURL = try url(for: processedPath)
-        try processedData.write(to: processedURL, options: .atomic)
+        try VaultFileStore.writeData(processedData, to: processedURL)
         return processedPath
     }
 

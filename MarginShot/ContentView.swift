@@ -53,6 +53,7 @@ struct ContentView: View {
             guard hasCompletedOnboarding else { return }
             do {
                 try VaultBootstrapper.bootstrapIfNeeded()
+                VaultEncryptionManager.startIfNeeded()
                 ProcessingQueue.shared.enqueuePendingProcessing()
             } catch {
                 print("Vault bootstrap failed: \(error)")
@@ -120,7 +121,7 @@ struct VaultBootstrapper {
     private static func writeFileIfNeeded(at url: URL, contents: String) throws {
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: url.path) else { return }
-        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try VaultFileStore.writeText(contents, to: url)
     }
 
     private static let defaultIndexJSON = """

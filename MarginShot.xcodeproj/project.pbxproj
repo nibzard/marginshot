@@ -19,6 +19,7 @@
 		A1B2C3D4E5F6000000000045 /* SyncStatusStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */; };
 		A1B2C3D4E5F6000000000067 /* PerformanceMetricsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000066 /* PerformanceMetricsStore.swift */; };
 		A1B2C3D4E5F6000000000048 /* SystemRulesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */; };
+		A1B2C3D4E5F6000000000071 /* VaultFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000070 /* VaultFileStore.swift */; };
 		A1B2C3D4E5F600000000004A /* SystemRulesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */; };
 		A1B2C3D4E5F6000000000062 /* OrganizationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000060 /* OrganizationSettings.swift */; };
 		A1B2C3D4E5F6000000000063 /* TopicPageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000061 /* TopicPageStore.swift */; };
@@ -68,6 +69,7 @@
 		A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusStore.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000066 /* PerformanceMetricsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMetricsStore.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRulesStore.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000070 /* VaultFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultFileStore.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRulesEditorView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000060 /* OrganizationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationSettings.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000061 /* TopicPageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicPageStore.swift; sourceTree = "<group>"; };
@@ -143,6 +145,7 @@
 				0DE316DD78EC46B8A2164601 /* PersistenceController.swift */,
 				A1B2C3D4E5F6000000000060 /* OrganizationSettings.swift */,
 				A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */,
+				A1B2C3D4E5F6000000000070 /* VaultFileStore.swift */,
 				A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */,
 				A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */,
 				A1B2C3D4E5F6000000000066 /* PerformanceMetricsStore.swift */,
@@ -339,6 +342,7 @@
 				A1B2C3D4E5F6000000000045 /* SyncStatusStore.swift in Sources */,
 				A1B2C3D4E5F6000000000067 /* PerformanceMetricsStore.swift in Sources */,
 				A1B2C3D4E5F6000000000048 /* SystemRulesStore.swift in Sources */,
+				A1B2C3D4E5F6000000000071 /* VaultFileStore.swift in Sources */,
 				A1B2C3D4E5F6000000000062 /* OrganizationSettings.swift in Sources */,
 				7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */,
 				A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */,

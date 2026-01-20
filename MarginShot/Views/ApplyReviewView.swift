@@ -285,7 +285,7 @@ enum ApplyReviewBuilder {
 
     private static func loadExistingContent(path: String) -> String? {
         guard let fileURL = VaultPreviewLocation.fileURL(relativePath: path) else { return nil }
-        return try? String(contentsOf: fileURL)
+        return try? VaultFileStore.readText(from: fileURL)
     }
 }
 

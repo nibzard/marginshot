@@ -275,6 +275,7 @@ enum KeychainStoreError: Error {
 enum KeychainStore {
     static let geminiAPIKeyKey = "GeminiAPIKey"
     static let githubAccessTokenKey = "GitHubAccessToken"
+    static let vaultEncryptionKeyKey = "VaultEncryptionKey"
     private static let service = Bundle.main.bundleIdentifier ?? "MarginShot"
 
     static func readString(forKey key: String) -> String? {
@@ -293,6 +294,22 @@ enum KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
+    static func readData(forKey key: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return data
+    }
+
     static func saveString(_ value: String, forKey key: String) throws {
         let data = Data(value.utf8)
         var query: [String: Any] = [
@@ -301,6 +318,37 @@ enum KeychainStore {
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            query.removeValue(forKey: kSecValueData as String)
+            let updateStatus = SecItemUpdate(
+                query as CFDictionary,
+                [
+                    kSecValueData as String: data
+                ] as CFDictionary
+            )
+            guard updateStatus == errSecSuccess else {
+                throw KeychainStoreError.unexpectedStatus(updateStatus)
+            }
+            return
+        }
+        guard status == errSecSuccess else {
+            throw KeychainStoreError.unexpectedStatus(status)
+        }
+    }
+
+    static func saveData(
+        _ data: Data,
+        forKey key: String,
+        accessible: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    ) throws {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: accessible
         ]
         let status = SecItemAdd(query as CFDictionary, nil)
         if status == errSecDuplicateItem {

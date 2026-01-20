@@ -33,7 +33,7 @@ enum TopicPageStore {
         do {
             let rootURL = try vaultRootURL()
             let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-            guard let data = try? Data(contentsOf: indexURL),
+            guard let data = try? VaultFileStore.readData(from: indexURL),
                   let snapshot = try? JSONDecoder().decode(IndexSnapshot.self, from: data) else {
                 return
             }
@@ -118,7 +118,7 @@ enum TopicPageStore {
 
     private static func shouldOverwrite(at url: URL) -> Bool {
         guard fileManager.fileExists(atPath: url.path) else { return true }
-        guard let existing = try? String(contentsOf: url, encoding: .utf8) else { return true }
+        guard let existing = try? VaultFileStore.readText(from: url) else { return true }
         let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return true
@@ -203,7 +203,6 @@ enum TopicPageStore {
     }
 
     private static func writeAtomically(text: String, to url: URL) throws {
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-        try Data(text.utf8).write(to: url, options: .atomic)
+        try VaultFileStore.writeText(text, to: url)
     }
 }

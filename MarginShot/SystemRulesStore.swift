@@ -15,7 +15,7 @@ enum SystemRulesStore {
         do {
             try ensureExists()
             let url = try fileURL()
-            return try String(contentsOf: url, encoding: .utf8)
+            return try VaultFileStore.readText(from: url)
         } catch {
             return defaultRules
         }
@@ -52,7 +52,7 @@ enum SystemRulesStore {
         if !fileManager.fileExists(atPath: directoryURL.path) {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
         }
-        try rules.write(to: url, atomically: true, encoding: .utf8)
+        try VaultFileStore.writeText(rules, to: url)
     }
 
     static func reset() throws {
@@ -67,7 +67,7 @@ enum SystemRulesStore {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
         }
         if !fileManager.fileExists(atPath: url.path) {
-            try defaultRules.write(to: url, atomically: true, encoding: .utf8)
+            try VaultFileStore.writeText(defaultRules, to: url)
         }
     }
 

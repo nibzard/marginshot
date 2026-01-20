@@ -476,7 +476,8 @@ struct SourceRow: View {
     @Environment(\.openURL) private var openURL
 
     private var fileURL: URL? {
-        VaultLocation.fileURL(relativePath: source.path)
+        guard let url = VaultLocation.fileURL(relativePath: source.path) else { return nil }
+        return VaultFileStore.decryptedCopyURL(for: url, relativePath: source.path)
     }
 
     private var canOpen: Bool {

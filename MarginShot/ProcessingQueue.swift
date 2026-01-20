@@ -190,7 +190,7 @@ enum VaultWriter {
     }
 
     private static func appendDailyEntry(existingAt url: URL, dateString: String, entry: String) throws -> String {
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let existing = (try? VaultFileStore.readText(from: url)) ?? ""
         if existing.isEmpty {
             return "# \(dateString)\n\n\(entry)\n"
         }
@@ -411,7 +411,7 @@ enum VaultWriter {
 
     private static func loadExistingLinkKeys(rootURL: URL) -> Set<String> {
         let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-        guard let data = try? Data(contentsOf: indexURL),
+        guard let data = try? VaultFileStore.readData(from: indexURL),
               let snapshot = try? JSONDecoder().decode(IndexSnapshot.self, from: data) else {
             return []
         }
@@ -462,13 +462,11 @@ enum VaultWriter {
     }
 
     private static func writeAtomically(text: String, to url: URL) throws {
-        try writeAtomically(data: Data(text.utf8), to: url)
+        try VaultFileStore.writeText(text, to: url)
     }
 
     private static func writeAtomically(data: Data, to url: URL) throws {
-        let directory = url.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-        try data.write(to: url, options: .atomic)
+        try VaultFileStore.writeData(data, to: url)
     }
 }
 
@@ -515,7 +513,7 @@ enum TaskConsolidator {
             let entries = loadNoteEntries(rootURL: rootURL)
             let sources = entries.compactMap { entry -> TaskSource? in
                 let noteURL = rootURL.appendingPathComponent(entry.path)
-                guard let markdown = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
+                guard let markdown = try? VaultFileStore.readText(from: noteURL) else { return nil }
                 let tasks = extractOpenTasks(from: markdown)
                 guard !tasks.isEmpty else { return nil }
                 return TaskSource(path: entry.path, title: entry.title, tasks: tasks)
@@ -548,7 +546,7 @@ enum TaskConsolidator {
 
     private static func loadNoteEntries(rootURL: URL) -> [NoteEntry] {
         let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-        if let data = try? Data(contentsOf: indexURL),
+        if let data = try? VaultFileStore.readData(from: indexURL),
            let snapshot = try? JSONDecoder().decode(IndexSnapshot.self, from: data) {
             let entries = snapshot.notes.compactMap { note -> NoteEntry? in
                 guard shouldInclude(path: note.path) else { return nil }
@@ -670,8 +668,7 @@ enum TaskConsolidator {
     }
 
     private static func writeAtomically(text: String, to url: URL) throws {
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
-        try Data(text.utf8).write(to: url, options: .atomic)
+        try VaultFileStore.writeText(text, to: url)
     }
 }
 
@@ -821,7 +818,7 @@ enum VaultApplyService {
                         attributes: nil
                     )
                     let data = try Data(contentsOf: stagedURL)
-                    try data.write(to: item.targetURL, options: .atomic)
+                    try VaultFileStore.writeData(data, to: item.targetURL)
                 }
                 applied.append(item)
             }
@@ -1419,7 +1416,7 @@ final class ProcessingQueue {
 
     private func loadScanInput(imagePath: String) throws -> ScanProcessingInput {
         let url = try VaultScanStore.url(for: imagePath)
-        let data = try Data(contentsOf: url)
+        let data = try VaultFileStore.readData(from: url)
         guard !data.isEmpty else {
             throw ProcessingPipelineError.invalidImageData
         }

@@ -348,6 +348,9 @@ struct SettingsView: View {
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
+        .onChange(of: privacyLocalEncryptionEnabled) { newValue in
+            VaultEncryptionManager.handleSettingChange(enabled: newValue)
+        }
         .onChange(of: advancedEnableZipExport) { newValue in
             if !newValue {
                 clearVaultZipState()
