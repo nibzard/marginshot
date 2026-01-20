@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "marginshot",
+    "root": "."
+  },
+  "source_files": [
+    "SPECS.md"
+  ],
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Create iOS project scaffold and two-mode navigation",
+      "priority": 1,
+      "status": "done",
+      "details": "Set up the app shell with a horizontal swipe container for Capture and Chat plus a header showing mode and sync status.",
+      "tags": [
+        "ui",
+        "app-structure"
+      ],
+      "steps": [
+        "Create the Xcode project and app entry point",
+        "Implement a swipe container between Capture and Chat",
+        "Add a minimal header with mode label and sync status icon"
+      ],
+      "updated_at": "2026-01-20T15:31:35+01:00",
+      "files": [
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "MarginShot/Views/HeaderView.swift",
+        "MarginShot/Info.plist",
+        "MarginShot/Assets.xcassets/Contents.json",
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/Contents.json"
+      ]
+    },
+    {
+      "id": "T002",
+      "title": "Implement onboarding and permissions flow",
+      "priority": 1,
+      "status": "todo",
+      "details": "Show a welcome screen, request camera (and optional photos) permissions, and handle denial paths.",
+      "tags": [
+        "ui",
+        "permissions"
+      ],
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T003",
+      "title": "Bootstrap the vault filesystem and base structure",
+      "priority": 1,
+      "status": "todo",
+      "details": "Create the default vault folder tree, SYSTEM.md, INDEX.json, and STRUCTURE.txt with atomic file writes.",
+      "tags": [
+        "storage",
+        "vault"
+      ],
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T004",
+      "title": "Define the local data model and persistence layer",
+      "priority": 1,
+      "status": "todo",
+      "details": "Model Batch, Scan, Note, SyncState, Index, and Notebook entities using Core Data or SQLite with migrations.",
+      "tags": [
+        "data",
+        "storage"
+      ],
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T005",
+      "title": "Build the capture camera and scanning pipeline",
+      "priority": 1,
+      "status": "todo",
+      "details": "Live camera preview with document detection, auto-crop, deskew, enhancement, and local image storage.",
+      "tags": [
+        "capture",
+        "vision"
+      ],
+      "depends_on": [
+        "T001",
+        "T004"
+      ]
+    },
+    {
+      "id": "T006",
+      "title": "Add batch capture and inbox management UI",
+      "priority": 1,
+      "status": "todo",
+      "details": "Create batch sessions, track scan status, show inbox count, and allow review/retry of failed items.",
+      "tags": [
+        "capture",
+        "inbox",
+        "ui"
+      ],
+      "depends_on": [
+        "T004",
+        "T005"
+      ]
+    },
+    {
+      "id": "T007",
+      "title": "Implement processing queue and background tasks",
+      "priority": 1,
+      "status": "todo",
+      "details": "Queue processing per notebook, schedule BGTaskScheduler jobs, and honor Wi-Fi/charging constraints.",
+      "tags": [
+        "processing",
+        "background"
+      ],
+      "depends_on": [
+        "T004",
+        "T006"
+      ]
+    },
+    {
+      "id": "T008",
+      "title": "Integrate the Gemini LLM client",
+      "priority": 1,
+      "status": "todo",
+      "details": "Implement network client, auth configuration, retries/backoff, and response parsing.",
+      "tags": [
+        "llm",
+        "network"
+      ],
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T009",
+      "title": "Build transcription, structure, and classification pipeline",
+      "priority": 1,
+      "status": "todo",
+      "details": "Support fast/balanced/best modes, validate JSON outputs, and preserve raw transcripts.",
+      "tags": [
+        "llm",
+        "processing"
+      ],
+      "depends_on": [
+        "T007",
+        "T008"
+      ]
+    },
+    {
+      "id": "T010",
+      "title": "Implement vault writer and Markdown note generation",
+      "priority": 1,
+      "status": "todo",
+      "details": "Write daily notes, store scan images and transcripts, and apply file operations atomically.",
+      "tags": [
+        "vault",
+        "processing"
+      ],
+      "depends_on": [
+        "T003",
+        "T009"
+      ]
+    },
+    {
+      "id": "T011",
+      "title": "Create the indexer and local search store",
+      "priority": 1,
+      "status": "todo",
+      "details": "Maintain INDEX.json and STRUCTURE.txt, plus a SQLite FTS index for fast retrieval.",
+      "tags": [
+        "index",
+        "search"
+      ],
+      "depends_on": [
+        "T010"
+      ]
+    },
+    {
+      "id": "T012",
+      "title": "Implement retrieval for chat grounding",
+      "priority": 1,
+      "status": "todo",
+      "details": "Query index + FTS, expand via wiki-links, and build a context bundle for the chat agent.",
+      "tags": [
+        "chat",
+        "search"
+      ],
+      "depends_on": [
+        "T011"
+      ]
+    },
+    {
+      "id": "T013",
+      "title": "Implement the chat agent and grounding rules",
+      "priority": 1,
+      "status": "todo",
+      "details": "Call the LLM with context and system rules, enforce grounded responses, and return sources metadata.",
+      "tags": [
+        "chat",
+        "llm"
+      ],
+      "depends_on": [
+        "T008",
+        "T012"
+      ]
+    },
+    {
+      "id": "T014",
+      "title": "Build the chat UI with sources disclosure",
+      "priority": 1,
+      "status": "todo",
+      "details": "Chat bubbles, input bar, typing indicator, and collapsible used sources with open actions.",
+      "tags": [
+        "chat",
+        "ui"
+      ],
+      "depends_on": [
+        "T013"
+      ]
+    },
+    {
+      "id": "T015",
+      "title": "Add the Ask about this capture-to-chat flow",
+      "priority": 1,
+      "status": "todo",
+      "details": "After finishing a batch, jump to chat and prioritize the latest batch context.",
+      "tags": [
+        "chat",
+        "capture",
+        "ui"
+      ],
+      "depends_on": [
+        "T006",
+        "T014"
+      ]
+    },
+    {
+      "id": "T016",
+      "title": "Create settings screens and basic toggles",
+      "priority": 1,
+      "status": "todo",
+      "details": "Implement grouped settings for Processing, Sync, Organization, Privacy, and Advanced toggles.",
+      "tags": [
+        "settings",
+        "ui"
+      ],
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T017",
+      "title": "Implement folder export as a sync destination",
+      "priority": 1,
+      "status": "todo",
+      "details": "Allow selecting a folder destination and run background sync after processing or apply-to-vault.",
+      "tags": [
+        "sync",
+        "storage"
+      ],
+      "depends_on": [
+        "T010",
+        "T016"
+      ]
+    },
+    {
+      "id": "T018",
+      "title": "Add sync status UI and error handling",
+      "priority": 1,
+      "status": "todo",
+      "details": "Show sync status in the header, expose settings banners, and add retry flows.",
+      "tags": [
+        "sync",
+        "ui"
+      ],
+      "depends_on": [
+        "T017"
+      ]
+    },
+    {
+      "id": "T019",
+      "title": "Implement privacy and security baseline",
+      "priority": 1,
+      "status": "todo",
+      "details": "Add LLM image send toggle with disclosure text and store tokens securely in Keychain.",
+      "tags": [
+        "privacy",
+        "security"
+      ],
+      "depends_on": [
+        "T008",
+        "T016"
+      ]
+    },
+    {
+      "id": "T020",
+      "title": "Add system rules file management and editor",
+      "priority": 2,
+      "status": "todo",
+      "details": "Maintain SYSTEM.md defaults and allow editing in Settings; apply rules in prompts.",
+      "tags": [
+        "system-rules",
+        "settings",
+        "llm"
+      ],
+      "depends_on": [
+        "T003",
+        "T016",
+        "T008"
+      ]
+    },
+    {
+      "id": "T021",
+      "title": "Implement apply-to-vault workflow",
+      "priority": 2,
+      "status": "todo",
+      "details": "Parse fileOps from chat, apply changes in a single transaction, and surface success/failure.",
+      "tags": [
+        "chat",
+        "vault"
+      ],
+      "depends_on": [
+        "T010",
+        "T014"
+      ]
+    },
+    {
+      "id": "T022",
+      "title": "Add wiki-linking and entity page creation",
+      "priority": 2,
+      "status": "todo",
+      "details": "Detect entities/projects, create pages lazily, and insert wiki-links in notes.",
+      "tags": [
+        "linking",
+        "vault"
+      ],
+      "depends_on": [
+        "T010",
+        "T011"
+      ]
+    },
+    {
+      "id": "T023",
+      "title": "Implement task extraction and consolidation",
+      "priority": 3,
+      "status": "todo",
+      "details": "Optionally aggregate tasks into 13_tasks and keep them updated during processing.",
+      "tags": [
+        "tasks",
+        "vault"
+      ],
+      "depends_on": [
+        "T010",
+        "T016"
+      ]
+    },
+    {
+      "id": "T024",
+      "title": "Add topic pages and optional Johnny.Decimal mode",
+      "priority": 3,
+      "status": "todo",
+      "details": "Generate _topics pages and support strict numbering for folder names when enabled.",
+      "tags": [
+        "topics",
+        "organization"
+      ],
+      "depends_on": [
+        "T003",
+        "T016"
+      ]
+    },
+    {
+      "id": "T025",
+      "title": "Implement GitHub destination sync",
+      "priority": 2,
+      "status": "todo",
+      "details": "Add OAuth flow, repo selection, and background sync with retries.",
+      "tags": [
+        "sync",
+        "github"
+      ],
+      "depends_on": [
+        "T017",
+        "T018"
+      ]
+    },
+    {
+      "id": "T026",
+      "title": "Add advanced review and diff mode",
+      "priority": 3,
+      "status": "todo",
+      "details": "Show file list and lightweight diffs before apply-to-vault when advanced review is enabled.",
+      "tags": [
+        "review",
+        "diff"
+      ],
+      "depends_on": [
+        "T021",
+        "T016"
+      ]
+    },
+    {
+      "id": "T027",
+      "title": "Support multiple notebooks",
+      "priority": 3,
+      "status": "todo",
+      "details": "Implement notebook selection in capture, per-notebook rules, and overrides in data model.",
+      "tags": [
+        "notebooks",
+        "data"
+      ],
+      "depends_on": [
+        "T004",
+        "T016",
+        "T006"
+      ]
+    },
+    {
+      "id": "T028",
+      "title": "Add vault export as ZIP",
+      "priority": 2,
+      "status": "todo",
+      "details": "Provide a Settings action to export the vault as a ZIP via the share sheet.",
+      "tags": [
+        "export",
+        "vault"
+      ],
+      "depends_on": [
+        "T010",
+        "T016"
+      ]
+    },
+    {
+      "id": "T029",
+      "title": "Implement local encryption option",
+      "priority": 4,
+      "status": "todo",
+      "details": "Encrypt vault data at rest if supported and manage keys securely.",
+      "tags": [
+        "security",
+        "encryption"
+      ],
+      "depends_on": [
+        "T019"
+      ]
+    },
+    {
+      "id": "T030",
+      "title": "Add performance instrumentation and targets",
+      "priority": 3,
+      "status": "todo",
+      "details": "Measure capture latency, processing throughput, and chat retrieval timing to hit target budgets.",
+      "tags": [
+        "performance"
+      ],
+      "depends_on": [
+        "T005",
+        "T009",
+        "T012"
+      ]
+    },
+    {
+      "id": "T031",
+      "title": "Create test coverage and QA plan",
+      "priority": 2,
+      "status": "todo",
+      "details": "Add unit tests for pipeline logic, integration tests for vault/sync, and UI smoke tests.",
+      "tags": [
+        "tests",
+        "qa"
+      ],
+      "depends_on": [
+        "T010",
+        "T017",
+        "T014"
+      ]
+    },
+    {
+      "id": "T032",
+      "title": "Resolve open product decisions and defaults",
+      "priority": 1,
+      "status": "todo",
+      "details": "Decide default sync behavior, transcript storage format, and multi-notebook timing; update defaults and copy.",
+      "tags": [
+        "product"
+      ]
+    }
+  ]
+}
