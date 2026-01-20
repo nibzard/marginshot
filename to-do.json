@@ -942,7 +942,7 @@
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T22:01:14Z"
+      "updated_at": "2026-01-20T22:03:19Z"
     },
     {
       "id": "T045",
@@ -958,7 +958,7 @@
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T22:13:05Z"
+      "updated_at": "2026-01-20T22:16:11Z"
     },
     {
       "id": "T046",
@@ -977,7 +977,40 @@
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T22:22:34Z"
+      "updated_at": "2026-01-20T22:24:40Z"
+    },
+    {
+      "id": "T047",
+      "title": "Reset GitHub sync baseline when repository selection changes",
+      "priority": 2,
+      "status": "done",
+      "details": "Selecting a new repo/branch keeps githubLastSyncAt from the prior repo, which can skip the initial upload. Clear or scope the last sync timestamp per repo/branch when the selection changes.",
+      "tags": [
+        "sync",
+        "github",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T22:49:30Z"
+    },
+    {
+      "id": "T048",
+      "title": "Avoid sync errors when offline by gating GitHub sync on network availability",
+      "priority": 2,
+      "status": "todo",
+      "details": "Before GitHub sync, check for any network (or Wi-Fi if required). When offline, skip the sync attempt and keep status idle rather than marking an error.",
+      "tags": [
+        "sync",
+        "network",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ]
     }
   ]
 }

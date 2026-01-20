@@ -41,7 +41,12 @@ enum GitHubDefaults {
     static let repoNameKey = "githubRepoName"
     static let repoFullNameKey = "githubRepoFullName"
     static let repoBranchKey = "githubRepoDefaultBranch"
-    static let lastSyncAtKey = "githubLastSyncAt"
+    static let lastSyncAtLegacyKey = "githubLastSyncAt"
+
+    static func lastSyncAtKey(owner: String, name: String, branch: String) -> String {
+        let normalizedBranch = branch.isEmpty ? "main" : branch
+        return "githubLastSyncAt.\(owner)/\(name)#\(normalizedBranch)"
+    }
 }
 
 extension ProcessingQualityMode {
@@ -569,11 +574,20 @@ struct SettingsView: View {
     }
 
     private func clearGitHubRepoSelection() {
+        let defaults = UserDefaults.standard
+        if !gitHubRepoOwner.isEmpty, !gitHubRepoName.isEmpty {
+            let lastSyncKey = GitHubDefaults.lastSyncAtKey(
+                owner: gitHubRepoOwner,
+                name: gitHubRepoName,
+                branch: gitHubRepoBranch
+            )
+            defaults.removeObject(forKey: lastSyncKey)
+        }
+        defaults.removeObject(forKey: GitHubDefaults.lastSyncAtLegacyKey)
         gitHubRepoOwner = ""
         gitHubRepoName = ""
         gitHubRepoFullName = ""
         gitHubRepoBranch = ""
-        UserDefaults.standard.removeObject(forKey: GitHubDefaults.lastSyncAtKey)
     }
 
     private func updateGitHubSyncErrorIfNeeded() {

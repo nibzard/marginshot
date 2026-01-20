@@ -1944,7 +1944,13 @@ enum GitHubSyncer {
             throw GitHubSyncError.missingRepository
         }
         let vaultURL = try vaultRootURL()
-        let lastSyncAt = UserDefaults.standard.object(forKey: GitHubDefaults.lastSyncAtKey) as? Date
+        let defaults = UserDefaults.standard
+        let lastSyncKey = GitHubDefaults.lastSyncAtKey(
+            owner: selection.owner,
+            name: selection.name,
+            branch: selection.branch
+        )
+        let lastSyncAt = defaults.object(forKey: lastSyncKey) as? Date
         let snapshot = try vaultSnapshot(in: vaultURL, since: lastSyncAt)
         let previousManifest = SyncManifestStore.loadGitHubManifest(selection: selection)
         let removed = previousManifest.subtracting(snapshot.manifest)
@@ -1957,7 +1963,8 @@ enum GitHubSyncer {
             try await deleteRemovedFiles(removed, selection: selection, token: token)
         }
         SyncManifestStore.saveGitHubManifest(snapshot.manifest, selection: selection)
-        UserDefaults.standard.set(Date(), forKey: GitHubDefaults.lastSyncAtKey)
+        defaults.set(Date(), forKey: lastSyncKey)
+        defaults.removeObject(forKey: GitHubDefaults.lastSyncAtLegacyKey)
     }
 
     private struct VaultFile {
