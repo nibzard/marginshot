@@ -1589,6 +1589,41 @@ enum SyncFolderSelection {
     }
 }
 
+private enum SyncManifestStore {
+    private static let folderManifestPrefix = "sync.folder.manifest."
+    private static let gitHubManifestPrefix = "sync.github.manifest."
+
+    static func loadFolderManifest(for destinationURL: URL) -> Set<String> {
+        let key = folderManifestKey(for: destinationURL)
+        let items = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return Set(items)
+    }
+
+    static func saveFolderManifest(_ manifest: Set<String>, for destinationURL: URL) {
+        let key = folderManifestKey(for: destinationURL)
+        UserDefaults.standard.set(manifest.sorted(), forKey: key)
+    }
+
+    static func loadGitHubManifest(selection: GitHubRepoSelection) -> Set<String> {
+        let key = gitHubManifestKey(for: selection)
+        let items = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return Set(items)
+    }
+
+    static func saveGitHubManifest(_ manifest: Set<String>, selection: GitHubRepoSelection) {
+        let key = gitHubManifestKey(for: selection)
+        UserDefaults.standard.set(manifest.sorted(), forKey: key)
+    }
+
+    private static func folderManifestKey(for destinationURL: URL) -> String {
+        "\(folderManifestPrefix)\(destinationURL.standardizedFileURL.path)"
+    }
+
+    private static func gitHubManifestKey(for selection: GitHubRepoSelection) -> String {
+        "\(gitHubManifestPrefix)\(selection.owner)/\(selection.name)#\(selection.branch)"
+    }
+}
+
 enum FolderSyncError: Error {
     case documentsDirectoryUnavailable
 }
@@ -1604,7 +1639,11 @@ enum FolderSyncer {
                 destinationURL.stopAccessingSecurityScopedResource()
             }
         }
-        try syncDirectory(from: vaultURL, to: destinationURL)
+        let previousManifest = SyncManifestStore.loadFolderManifest(for: destinationURL)
+        let currentManifest = try syncDirectory(from: vaultURL, to: destinationURL)
+        let removed = previousManifest.subtracting(currentManifest)
+        try deleteRemovedFiles(removed, in: destinationURL)
+        SyncManifestStore.saveFolderManifest(currentManifest, for: destinationURL)
     }
 
     private static func vaultRootURL() throws -> URL {
@@ -1614,7 +1653,8 @@ enum FolderSyncer {
         return documentsURL.appendingPathComponent("vault", isDirectory: true)
     }
 
-    private static func syncDirectory(from sourceURL: URL, to destinationURL: URL) throws {
+    @discardableResult
+    private static func syncDirectory(from sourceURL: URL, to destinationURL: URL) throws -> Set<String> {
         try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]
         guard let enumerator = fileManager.enumerator(
@@ -1622,9 +1662,10 @@ enum FolderSyncer {
             includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]
         ) else {
-            return
+            return []
         }
 
+        var syncedFiles = Set<String>()
         for case let fileURL as URL in enumerator {
             let relativePath = relativePath(from: sourceURL, to: fileURL)
             let targetURL = destinationURL.appendingPathComponent(relativePath)
@@ -1639,6 +1680,53 @@ enum FolderSyncer {
                 let parent = targetURL.deletingLastPathComponent()
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
                 try replaceItem(at: targetURL, with: fileURL)
+            }
+            syncedFiles.insert(relativePath)
+        }
+        return syncedFiles
+    }
+
+    private static func deleteRemovedFiles(_ removed: Set<String>, in destinationURL: URL) throws {
+        guard !removed.isEmpty else { return }
+        let rootURL = destinationURL.standardizedFileURL
+        var deletedPaths: [String] = []
+        for relativePath in removed {
+            guard !relativePath.isEmpty else { continue }
+            let targetURL = destinationURL.appendingPathComponent(relativePath)
+            guard isInside(targetURL, rootURL: rootURL) else { continue }
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: targetURL.path, isDirectory: &isDirectory) {
+                if isDirectory.boolValue {
+                    continue
+                }
+                try fileManager.removeItem(at: targetURL)
+                deletedPaths.append(relativePath)
+            }
+        }
+        removeEmptyDirectories(for: deletedPaths, rootURL: rootURL)
+    }
+
+    private static func isInside(_ url: URL, rootURL: URL) -> Bool {
+        let rootPath = rootURL.standardizedFileURL.path
+        let candidatePath = url.standardizedFileURL.path
+        return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
+    }
+
+    private static func removeEmptyDirectories(for deletedPaths: [String], rootURL: URL) {
+        guard !deletedPaths.isEmpty else { return }
+        for relativePath in deletedPaths {
+            var directoryURL = rootURL.appendingPathComponent(relativePath).deletingLastPathComponent()
+            while isInside(directoryURL, rootURL: rootURL), directoryURL != rootURL {
+                if let contents = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) {
+                    if contents.isEmpty {
+                        try? fileManager.removeItem(at: directoryURL)
+                        directoryURL.deleteLastPathComponent()
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
             }
         }
     }
@@ -1857,12 +1945,18 @@ enum GitHubSyncer {
         }
         let vaultURL = try vaultRootURL()
         let lastSyncAt = UserDefaults.standard.object(forKey: GitHubDefaults.lastSyncAtKey) as? Date
-        let files = try changedFiles(in: vaultURL, since: lastSyncAt)
-        guard !files.isEmpty else { return }
+        let snapshot = try vaultSnapshot(in: vaultURL, since: lastSyncAt)
+        let previousManifest = SyncManifestStore.loadGitHubManifest(selection: selection)
+        let removed = previousManifest.subtracting(snapshot.manifest)
+        guard !snapshot.changed.isEmpty || !removed.isEmpty else { return }
 
-        for file in files {
+        for file in snapshot.changed {
             try await upload(file: file, selection: selection, token: token)
         }
+        if !removed.isEmpty {
+            try await deleteRemovedFiles(removed, selection: selection, token: token)
+        }
+        SyncManifestStore.saveGitHubManifest(snapshot.manifest, selection: selection)
         UserDefaults.standard.set(Date(), forKey: GitHubDefaults.lastSyncAtKey)
     }
 
@@ -1872,30 +1966,42 @@ enum GitHubSyncer {
         let modifiedAt: Date?
     }
 
-    private static func changedFiles(in rootURL: URL, since date: Date?) throws -> [VaultFile] {
+    private static func vaultSnapshot(in rootURL: URL, since date: Date?) throws -> (changed: [VaultFile], manifest: Set<String>) {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey]
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
             includingPropertiesForKeys: Array(keys),
             options: [.skipsHiddenFiles]
         ) else {
-            return []
+            return ([], [])
         }
 
         var files: [VaultFile] = []
+        var manifest = Set<String>()
         for case let fileURL as URL in enumerator {
             let values = try fileURL.resourceValues(forKeys: keys)
             if values.isDirectory == true {
                 continue
             }
             let modifiedAt = values.contentModificationDate
-            if let date, let modifiedAt, modifiedAt <= date {
-                continue
-            }
             let relativePath = relativePath(from: rootURL, to: fileURL)
-            files.append(VaultFile(url: fileURL, relativePath: relativePath, modifiedAt: modifiedAt))
+            manifest.insert(relativePath)
+            let isChanged: Bool
+            if let date {
+                if let modifiedAt {
+                    isChanged = modifiedAt > date
+                } else {
+                    isChanged = true
+                }
+            } else {
+                isChanged = true
+            }
+            if isChanged {
+                files.append(VaultFile(url: fileURL, relativePath: relativePath, modifiedAt: modifiedAt))
+            }
         }
-        return files.sorted { $0.relativePath < $1.relativePath }
+        let sorted = files.sorted { $0.relativePath < $1.relativePath }
+        return (sorted, manifest)
     }
 
     private static func upload(
@@ -1920,6 +2026,44 @@ enum GitHubSyncer {
             throw mapGitHubError(apiError)
         } catch {
             throw GitHubSyncError.transportError(error.localizedDescription)
+        }
+    }
+
+    private static func deleteRemovedFiles(
+        _ removed: Set<String>,
+        selection: GitHubRepoSelection,
+        token: String
+    ) async throws {
+        for relativePath in removed.sorted() {
+            do {
+                guard let sha = try await GitHubAPI.fetchContentSHA(
+                    token: token,
+                    owner: selection.owner,
+                    repo: selection.name,
+                    path: relativePath,
+                    branch: selection.branch
+                ) else {
+                    continue
+                }
+                let message = "Sync vault: delete \(relativePath)"
+                try await GitHubAPI.deleteContent(
+                    token: token,
+                    owner: selection.owner,
+                    repo: selection.name,
+                    path: relativePath,
+                    branch: selection.branch,
+                    sha: sha,
+                    message: message
+                )
+            } catch let apiError as GitHubAPIError where apiError == .notFound {
+                continue
+            } catch let syncError as GitHubSyncError {
+                throw syncError
+            } catch let apiError as GitHubAPIError {
+                throw mapGitHubError(apiError)
+            } catch {
+                throw GitHubSyncError.transportError(error.localizedDescription)
+            }
         }
     }
 
@@ -2036,6 +2180,19 @@ struct GitHubContentResponse: Decodable {
     let sha: String
 }
 
+struct GitHubCreateContentRequest: Encodable {
+    let message: String
+    let content: String
+    let branch: String
+    let sha: String?
+}
+
+struct GitHubDeleteContentRequest: Encodable {
+    let message: String
+    let sha: String
+    let branch: String
+}
+
 struct GitHubTokenResponse: Decodable {
     let accessToken: String?
     let error: String?
@@ -2141,6 +2298,30 @@ enum GitHubAPI {
         }
         if http.statusCode == 422 {
             throw GitHubAPIError.requiresSha
+        }
+        try handleError(data, response: http)
+    }
+
+    static func deleteContent(
+        token: String,
+        owner: String,
+        repo: String,
+        path: String,
+        branch: String,
+        sha: String,
+        message: String
+    ) async throws {
+        let url = contentsURL(owner: owner, repo: repo, path: path)
+        var request = authorizedRequest(url: url, token: token, method: "DELETE")
+        let payload = GitHubDeleteContentRequest(message: message, sha: sha, branch: branch)
+        request.httpBody = try JSONEncoder().encode(payload)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubAPIError.invalidResponse
+        }
+        if (200...299).contains(http.statusCode) {
+            return
         }
         try handleError(data, response: http)
     }

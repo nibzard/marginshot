@@ -948,15 +948,17 @@
       "id": "T045",
       "title": "Mirror deletions in sync destinations",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "FolderSyncer and GitHubSyncer currently only upload/copy changed files; add deletion handling so removed vault files are deleted remotely (with safeguards against non-vault files).",
       "tags": [
         "sync",
         "reliability"
       ],
       "files": [
-        "MarginShot/ProcessingQueue.swift"
-      ]
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T22:13:05Z"
     },
     {
       "id": "T046",
