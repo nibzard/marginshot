@@ -13,6 +13,7 @@ enum VaultFileStore {
     private static let fileManager = FileManager.default
     private static let encryptionKey = KeychainStore.vaultEncryptionKeyKey
     private static let encryptionEnabledKey = "privacyLocalEncryptionEnabled"
+    private static let decryptedTempDirectoryName = "marginshot-decrypted"
 
     static func isEncryptionEnabled(userDefaults: UserDefaults = .standard) -> Bool {
         userDefaults.object(forKey: encryptionEnabledKey) as? Bool ?? false
@@ -59,7 +60,7 @@ enum VaultFileStore {
             guard isEncryptedData(raw) else { return url }
             let decrypted = try decryptDataIfNeeded(raw)
             let safeName = sanitizeTempFileName(relativePath ?? url.lastPathComponent)
-            let tempDir = fileManager.temporaryDirectory.appendingPathComponent("marginshot-decrypted", isDirectory: true)
+            let tempDir = fileManager.temporaryDirectory.appendingPathComponent(decryptedTempDirectoryName, isDirectory: true)
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: nil)
             let tempURL = tempDir.appendingPathComponent(safeName)
             try decrypted.write(to: tempURL, options: .atomic)
@@ -67,6 +68,12 @@ enum VaultFileStore {
         } catch {
             return nil
         }
+    }
+
+    static func cleanupDecryptedCopies() {
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(decryptedTempDirectoryName, isDirectory: true)
+        guard fileManager.fileExists(atPath: tempDir.path) else { return }
+        try? fileManager.removeItem(at: tempDir)
     }
 
     static func ensureEncryptionKey() throws {

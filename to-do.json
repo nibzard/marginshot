@@ -846,7 +846,7 @@
       "id": "T039",
       "title": "Clean up decrypted temp copies opened from chat",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "When local encryption is enabled, opening a note from chat writes a decrypted copy under the temp marginshot-decrypted folder; add cleanup (on open completion or app launch) to avoid leaving plaintext files on disk.",
       "tags": [
         "security",
@@ -854,9 +854,11 @@
         "vault"
       ],
       "files": [
-        "MarginShot/ChatView.swift",
-        "MarginShot/VaultFileStore.swift"
-      ]
+        "MarginShot/ContentView.swift",
+        "MarginShot/VaultFileStore.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T21:07:52Z"
     }
   ]
 }

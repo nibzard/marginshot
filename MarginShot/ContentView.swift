@@ -48,6 +48,7 @@ struct ContentView: View {
         }
         .onAppear {
             syncStatus.refreshDestination()
+            VaultFileStore.cleanupDecryptedCopies()
         }
         .task(id: hasCompletedOnboarding) {
             guard hasCompletedOnboarding else { return }
@@ -60,6 +61,9 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                VaultFileStore.cleanupDecryptedCopies()
+            }
             guard hasCompletedOnboarding else { return }
             switch phase {
             case .active:
