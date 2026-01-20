@@ -55,7 +55,7 @@ struct ContentView: View {
             do {
                 try VaultBootstrapper.bootstrapIfNeeded()
                 VaultEncryptionManager.startIfNeeded()
-                ProcessingQueue.shared.enqueuePendingProcessing()
+                ProcessingQueue.shared.enqueueOpenBatches()
             } catch {
                 print("Vault bootstrap failed: \(error)")
             }

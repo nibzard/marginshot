@@ -348,7 +348,8 @@ struct InboxSheet: View {
     private var batchSections: [(batch: BatchEntity, scans: [ScanEntity])] {
         batches.compactMap { batch in
             let scans = scansForBatch(batch)
-            return scans.isEmpty ? nil : (batch: batch, scans: scans)
+            let isOpen = batch.statusEnum == .open
+            return (scans.isEmpty && !isOpen) ? nil : (batch: batch, scans: scans)
         }
     }
 
@@ -386,7 +387,13 @@ struct InboxBatchHeader: View {
             Text("\(scanCount) scans")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            if batch.statusEnum == .blocked || batch.statusEnum == .error {
+            if batch.statusEnum == .open {
+                Button("Queue") {
+                    onRetry()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else if batch.statusEnum == .blocked || batch.statusEnum == .error {
                 Button("Retry") {
                     onRetry()
                 }
@@ -872,6 +879,22 @@ final class CaptureViewModel: ObservableObject {
 
     func retryBatch(_ batch: BatchEntity) {
         guard let context else { return }
+        guard let batchStatus = BatchStatus(rawValue: batch.status) else { return }
+
+        // Handle open batches: just queue them without preprocessing
+        if batchStatus == .open {
+            batch.status = BatchStatus.queued.rawValue
+            batch.updatedAt = Date()
+            do {
+                try context.save()
+                statusText = "Batch queued"
+                ProcessingQueue.shared.enqueuePendingProcessing()
+            } catch {
+                statusText = "Queue failed"
+            }
+            return
+        }
+
         let pendingScans = batch.scans.filter { ScanStatus(rawValue: $0.status) != .filed }
         guard !pendingScans.isEmpty else { return }
 

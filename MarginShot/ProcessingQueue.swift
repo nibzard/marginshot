@@ -1013,6 +1013,31 @@ final class ProcessingQueue {
         processPendingBatchesIfNeeded()
     }
 
+    func enqueueOpenBatches() {
+        let context = persistenceController.container.newBackgroundContext()
+        let openBatchIDs: [NSManagedObjectID] = context.performAndWait {
+            let request = BatchEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "status == %@", BatchStatus.open.rawValue)
+            request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+            do {
+                let openBatches = try context.fetch(request)
+                guard !openBatches.isEmpty else { return [] }
+                for batch in openBatches {
+                    batch.status = BatchStatus.queued.rawValue
+                    batch.updatedAt = Date()
+                }
+                try context.save()
+                return openBatches.map { $0.objectID }
+            } catch {
+                print("Failed to enqueue open batches: \(error)")
+                return []
+            }
+        }
+        if !openBatchIDs.isEmpty {
+            enqueuePendingProcessing()
+        }
+    }
+
     func scheduleBackgroundProcessing() {
         let prefs = preferences
         guard prefs.autoProcessInbox else { return }

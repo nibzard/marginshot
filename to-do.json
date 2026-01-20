@@ -1013,7 +1013,39 @@
         "MarginShot/SyncStatusStore.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T23:10:40Z"
+      "updated_at": "2026-01-20T23:11:31Z"
+    },
+    {
+      "id": "T049",
+      "title": "Handle open batches left after app restarts",
+      "priority": 1,
+      "status": "done",
+      "details": "Open batches with pending scans stay stuck and never reach processing if the app is closed before Finish. Detect open batches on launch or in Inbox and provide a way to queue or resume them.",
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/ContentView.swift"
+      ],
+      "updated_at": "2026-01-20T23:31:24Z"
+    },
+    {
+      "id": "T050",
+      "title": "Make VaultSyncIntegrationTests independent of user defaults",
+      "priority": 2,
+      "status": "todo",
+      "details": "Set organization style/encryption defaults in test setup and read vault files via VaultFileStore (or force encryption off) so tests do not fail when preferences change.",
+      "tags": [
+        "tests",
+        "reliability"
+      ],
+      "files": [
+        "MarginShotTests/VaultSyncIntegrationTests.swift"
+      ]
     }
   ]
 }
