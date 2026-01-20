@@ -167,6 +167,9 @@ struct SettingsView: View {
                     Toggle("Linking", isOn: $organizationLinkingEnabled)
                     Toggle("Task extraction", isOn: $organizationTaskExtractionEnabled)
                     Toggle("Topic pages", isOn: $organizationTopicPagesEnabled)
+                    NavigationLink("Edit System Rules") {
+                        SystemRulesEditorView()
+                    }
                 } footer: {
                     Text("Tune how notes are structured and connected. Single default notebook for now; multi-notebook support is planned.")
                 }

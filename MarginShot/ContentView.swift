@@ -99,7 +99,7 @@ struct VaultBootstrapper {
         let systemDirectoryURL = rootURL.appendingPathComponent("_system", isDirectory: true)
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("SYSTEM.md"),
-            contents: defaultSystemRules
+            contents: SystemRulesStore.defaultRules
         )
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("INDEX.json"),
@@ -132,16 +132,6 @@ struct VaultBootstrapper {
         guard !fileManager.fileExists(atPath: url.path) else { return }
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }
-
-    private static let defaultSystemRules = """
-    # System Rules
-
-    - Depth over breadth; prioritize clean, composable notes.
-    - Prefer claim-style headings when confident.
-    - Weave wiki-links inline when referencing concepts or projects.
-    - Don't invent facts; mark uncertain items as TODO.
-    - Keep a raw transcription section for traceability.
-    """
 
     private static let defaultIndexJSON = """
     {

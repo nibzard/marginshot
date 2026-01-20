@@ -419,12 +419,12 @@
         "T008",
         "T016"
       ],
-      "updated_at": "2026-01-20T17:19:38Z",
+      "updated_at": "2026-01-20T17:21:35Z",
       "files": [
         "MarginShot/GeminiClient.swift",
         "MarginShot/ProcessingQueue.swift",
-        "MarginShot/Views/SettingsView.swift",
         "MarginShot/Views/ChatView.swift",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ]
     },
@@ -432,7 +432,7 @@
       "id": "T020",
       "title": "Add system rules file management and editor",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Maintain SYSTEM.md defaults and allow editing in Settings; apply rules in prompts.",
       "tags": [
         "system-rules",
@@ -443,6 +443,16 @@
         "T003",
         "T016",
         "T008"
+      ],
+      "updated_at": "2026-01-20T17:37:54Z",
+      "files": [
+        "MarginShot/SystemRulesStore.swift",
+        "MarginShot/Views/SystemRulesEditorView.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {
@@ -620,11 +630,11 @@
       "tags": [
         "product"
       ],
-      "updated_at": "2026-01-20T17:29:18Z",
+      "updated_at": "2026-01-20T17:32:25Z",
       "files": [
-        "SPECS.md",
-        "MarginShot/Views/SettingsView.swift",
         "MarginShot/Views/OnboardingView.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "SPECS.md",
         "to-do.json"
       ]
     }

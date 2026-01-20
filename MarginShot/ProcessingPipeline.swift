@@ -22,23 +22,9 @@ struct ProcessingContextSnapshot {
 
 enum ProcessingContextLoader {
     static func load() -> ProcessingContextSnapshot {
-        let fallbackRules = """
-        # System Rules
-
-        - Depth over breadth; prioritize clean, composable notes.
-        - Prefer claim-style headings when confident.
-        - Weave wiki-links inline when referencing concepts or projects.
-        - Don't invent facts; mark uncertain items as TODO.
-        - Keep a raw transcription section for traceability.
-        """
-
-        var systemRules = fallbackRules
+        let systemRules = SystemRulesStore.loadForPrompt()
         var indexJSON: String?
         var structureText: String?
-
-        if let rules = readVaultText(path: "_system/SYSTEM.md") {
-            systemRules = rules
-        }
         indexJSON = readVaultText(path: "_system/INDEX.json")
         structureText = readVaultText(path: "_system/STRUCTURE.txt")
 

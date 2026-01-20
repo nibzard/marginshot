@@ -16,6 +16,8 @@
 		A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000F /* OnboardingView.swift */; };
 		A1B2C3D4E5F6000000000044 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000043 /* SettingsView.swift */; };
 		A1B2C3D4E5F6000000000045 /* SyncStatusStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */; };
+		A1B2C3D4E5F6000000000048 /* SystemRulesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */; };
+		A1B2C3D4E5F600000000004A /* SystemRulesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */; };
 		7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE316DD78EC46B8A2164601 /* PersistenceController.swift */; };
 		A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */; };
 		A1B2C3D4E5F6000000000023 /* ProcessingPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */; };
@@ -37,6 +39,8 @@
 		A1B2C3D4E5F600000000000F /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000043 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusStore.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRulesStore.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRulesEditorView.swift; sourceTree = "<group>"; };
 		0DE316DD78EC46B8A2164601 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingQueue.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingPipeline.swift; sourceTree = "<group>"; };
@@ -81,6 +85,7 @@
 				A1B2C3D4E5F6000000000008 /* MarginShotApp.swift */,
 				A1B2C3D4E5F6000000000009 /* ContentView.swift */,
 				0DE316DD78EC46B8A2164601 /* PersistenceController.swift */,
+				A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */,
 				A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */,
 				A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */,
 				A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */,
@@ -110,6 +115,7 @@
 				A1B2C3D4E5F600000000000C /* HeaderView.swift */,
 				A1B2C3D4E5F600000000000F /* OnboardingView.swift */,
 				A1B2C3D4E5F6000000000043 /* SettingsView.swift */,
+				A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -190,7 +196,9 @@
 				A1B2C3D4E5F6000000000014 /* HeaderView.swift in Sources */,
 				A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */,
 				A1B2C3D4E5F6000000000044 /* SettingsView.swift in Sources */,
+				A1B2C3D4E5F600000000004A /* SystemRulesEditorView.swift in Sources */,
 				A1B2C3D4E5F6000000000045 /* SyncStatusStore.swift in Sources */,
+				A1B2C3D4E5F6000000000048 /* SystemRulesStore.swift in Sources */,
 				7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */,
 				A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */,
 				A1B2C3D4E5F6000000000023 /* ProcessingPipeline.swift in Sources */,
