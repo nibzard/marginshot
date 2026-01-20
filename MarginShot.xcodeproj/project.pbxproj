@@ -17,6 +17,7 @@
 		A1B2C3D4E5F6000000000044 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000043 /* SettingsView.swift */; };
 		A1B2C3D4E5F6000000000065 /* NotebookPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000064 /* NotebookPickerView.swift */; };
 		A1B2C3D4E5F6000000000045 /* SyncStatusStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */; };
+		A1B2C3D4E5F6000000000067 /* PerformanceMetricsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000066 /* PerformanceMetricsStore.swift */; };
 		A1B2C3D4E5F6000000000048 /* SystemRulesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */; };
 		A1B2C3D4E5F600000000004A /* SystemRulesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */; };
 		A1B2C3D4E5F6000000000062 /* OrganizationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000060 /* OrganizationSettings.swift */; };
@@ -65,6 +66,7 @@
 		A1B2C3D4E5F6000000000043 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000064 /* NotebookPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotebookPickerView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusStore.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000066 /* PerformanceMetricsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMetricsStore.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRulesStore.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000049 /* SystemRulesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRulesEditorView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000060 /* OrganizationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationSettings.swift; sourceTree = "<group>"; };
@@ -143,6 +145,7 @@
 				A1B2C3D4E5F6000000000047 /* SystemRulesStore.swift */,
 				A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */,
 				A1B2C3D4E5F6000000000046 /* SyncStatusStore.swift */,
+				A1B2C3D4E5F6000000000066 /* PerformanceMetricsStore.swift */,
 				A1B2C3D4E5F6000000000024 /* ProcessingPipeline.swift */,
 				A1B2C3D4E5F6000000000026 /* VaultIndexStore.swift */,
 				A1B2C3D4E5F6000000000061 /* TopicPageStore.swift */,
@@ -334,6 +337,7 @@
 				A1B2C3D4E5F6000000000065 /* NotebookPickerView.swift in Sources */,
 				A1B2C3D4E5F600000000004A /* SystemRulesEditorView.swift in Sources */,
 				A1B2C3D4E5F6000000000045 /* SyncStatusStore.swift in Sources */,
+				A1B2C3D4E5F6000000000067 /* PerformanceMetricsStore.swift in Sources */,
 				A1B2C3D4E5F6000000000048 /* SystemRulesStore.swift in Sources */,
 				A1B2C3D4E5F6000000000062 /* OrganizationSettings.swift in Sources */,
 				7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */,

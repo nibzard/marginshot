@@ -506,6 +506,7 @@ final class CaptureViewModel: ObservableObject {
     private var context: NSManagedObjectContext?
     private var batchId = UUID().uuidString
     private var pageIndex = 0
+    private var captureRequestedAt: TimeInterval?
     private var currentBatchObjectID: NSManagedObjectID?
 
     var statusTint: Color {
@@ -648,6 +649,7 @@ final class CaptureViewModel: ObservableObject {
         guard canCapture else { return }
         isProcessing = true
         statusText = "Capturing..."
+        captureRequestedAt = CFAbsoluteTimeGetCurrent()
         cameraController.capturePhoto()
     }
 
@@ -673,6 +675,13 @@ final class CaptureViewModel: ObservableObject {
     private func handlePhotoCapture(_ result: Result<Data, Error>) {
         switch result {
         case .success(let data):
+            if let captureRequestedAt {
+                let shutterLatency = CFAbsoluteTimeGetCurrent() - captureRequestedAt
+                self.captureRequestedAt = nil
+                Task { @MainActor in
+                    PerformanceMetricsStore.shared.recordDuration(.captureShutterLatency, seconds: shutterLatency)
+                }
+            }
             statusText = "Processing scan..."
             let nextIndex = pageIndex + 1
             let batchId = batchId
@@ -693,11 +702,19 @@ final class CaptureViewModel: ObservableObject {
                         self.persistScanIfPossible(stored, pageIndex: nextIndex, status: .preprocessing)
                     }
 
+                    let preprocessStart = CFAbsoluteTimeGetCurrent()
                     let processed = try DocumentProcessingPipeline.process(imageData: data)
+                    let preprocessDuration = CFAbsoluteTimeGetCurrent() - preprocessStart
                     let processedPath = try VaultScanStore.saveProcessedScan(
                         processedData: processed.processedData,
                         rawPath: stored.rawPath
                     )
+
+                    let scansPerMinute = 60.0 / max(preprocessDuration, 0.001)
+                    await MainActor.run {
+                        PerformanceMetricsStore.shared.recordDuration(.capturePreprocessDuration, seconds: preprocessDuration)
+                        PerformanceMetricsStore.shared.record(.processingThroughput, value: scansPerMinute)
+                    }
 
                     await MainActor.run {
                         guard let self else { return }
@@ -722,6 +739,7 @@ final class CaptureViewModel: ObservableObject {
         case .failure:
             statusText = "Capture failed"
             isProcessing = false
+            captureRequestedAt = nil
         }
     }
 

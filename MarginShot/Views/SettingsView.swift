@@ -60,6 +60,7 @@ extension ProcessingQualityMode {
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var syncStatus: SyncStatusStore
+    @StateObject private var performanceStore = PerformanceMetricsStore.shared
 
     @AppStorage("processingAutoProcessInbox") private var autoProcessInbox = true
     @AppStorage("processingQualityMode") private var processingQualityModeRaw = ProcessingQualityMode.balanced.rawValue
@@ -275,6 +276,22 @@ struct SettingsView: View {
                     Toggle("Local encryption", isOn: $privacyLocalEncryptionEnabled)
                 } footer: {
                     Text("When enabled, page images are sent to the LLM provider for transcription. Turn this off to keep images on device; scans stay in the inbox until re-enabled.")
+                }
+
+                Section("Performance") {
+                    ForEach(PerformanceMetric.primaryMetrics) { metric in
+                        PerformanceMetricRow(
+                            metric: metric,
+                            valueText: performanceStore.formattedValue(for: metric),
+                            targetText: performanceStore.formattedTarget(for: metric),
+                            status: performanceStore.status(for: metric)
+                        )
+                    }
+                    Button("Reset metrics") {
+                        performanceStore.reset()
+                    }
+                } footer: {
+                    Text("Targets align with the performance budgets in SPECS.")
                 }
 
                 Section("Advanced") {
@@ -602,6 +619,43 @@ struct SettingsView: View {
                 return "Vault folder not found yet."
             }
         }
+    }
+}
+
+private struct PerformanceMetricRow: View {
+    let metric: PerformanceMetric
+    let valueText: String
+    let targetText: String?
+    let status: PerformanceStatus?
+
+    private var valueColor: Color {
+        switch status {
+        case .outsideTarget:
+            return .orange
+        case .withinTarget:
+            return .primary
+        case .none:
+            return .secondary
+        }
+    }
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(metric.displayName)
+                    .font(.subheadline)
+                if let targetText {
+                    Text(targetText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text(valueText)
+                .font(.subheadline)
+                .foregroundStyle(valueColor)
+        }
+        .padding(.vertical, 2)
     }
 }
 

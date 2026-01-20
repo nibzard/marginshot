@@ -534,16 +534,16 @@
         "T003",
         "T016"
       ],
-      "updated_at": "2026-01-20T19:13:04Z",
+      "updated_at": "2026-01-20T19:14:28Z",
       "files": [
-        "MarginShot/OrganizationSettings.swift",
-        "MarginShot/TopicPageStore.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ChatAgent.swift",
         "MarginShot/ContentView.swift",
+        "MarginShot/OrganizationSettings.swift",
         "MarginShot/ProcessingPipeline.swift",
         "MarginShot/ProcessingQueue.swift",
-        "MarginShot/ChatAgent.swift",
+        "MarginShot/TopicPageStore.swift",
         "MarginShot/Views/SettingsView.swift",
-        "MarginShot.xcodeproj/project.pbxproj",
         "to-do.json"
       ]
     },
@@ -584,7 +584,7 @@
         "T021",
         "T016"
       ],
-      "updated_at": "2026-01-20T19:20:59Z",
+      "updated_at": "2026-01-20T19:23:01Z",
       "files": [
         "MarginShot/Views/ApplyReviewView.swift",
         "MarginShot/Views/ChatView.swift",
@@ -606,7 +606,7 @@
         "T016",
         "T006"
       ],
-      "updated_at": "2026-01-20T19:34:34Z",
+      "updated_at": "2026-01-20T19:37:08Z",
       "files": [
         "MarginShot.xcodeproj/project.pbxproj",
         "MarginShot/ProcessingPipeline.swift",
@@ -656,7 +656,7 @@
       "id": "T030",
       "title": "Add performance instrumentation and targets",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Measure capture latency, processing throughput, and chat retrieval timing to hit target budgets.",
       "tags": [
         "performance"
@@ -665,6 +665,16 @@
         "T005",
         "T009",
         "T012"
+      ],
+      "updated_at": "2026-01-20T19:48:28Z",
+      "files": [
+        "MarginShot/PerformanceMetricsStore.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/ChatAgent.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

@@ -55,6 +55,7 @@ final class ChatAgent {
             throw ChatAgentError.emptyQuery
         }
 
+        let retrievalStart = CFAbsoluteTimeGetCurrent()
         let context = await indexStore.retrieveContextBundle(
             query: trimmed,
             preferredBatchId: preferredBatchId,
@@ -62,6 +63,10 @@ final class ChatAgent {
             maxLinkedNotes: maxLinkedNotes,
             maxCharactersPerNote: maxCharactersPerNote
         )
+        let retrievalDuration = CFAbsoluteTimeGetCurrent() - retrievalStart
+        await MainActor.run {
+            PerformanceMetricsStore.shared.recordDuration(.chatRetrievalLatency, seconds: retrievalDuration)
+        }
 
         guard !context.sources.isEmpty else {
             return fallbackResponse(warnings: ["No matching sources found in the vault."])

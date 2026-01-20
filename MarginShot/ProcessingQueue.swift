@@ -1136,6 +1136,7 @@ final class ProcessingQueue {
         }
 
         guard !batchDetails.scanIDs.isEmpty else { return false }
+        let batchStart = CFAbsoluteTimeGetCurrent()
         let processingContext = ProcessingContextLoader.load(rulesOverrides: batchDetails.rulesOverrides)
 
         var batchSucceeded = true
@@ -1167,6 +1168,11 @@ final class ProcessingQueue {
             try? context.save()
         }
 
+        let batchDuration = CFAbsoluteTimeGetCurrent() - batchStart
+        await MainActor.run {
+            PerformanceMetricsStore.shared.recordDuration(.processingBatchDuration, seconds: batchDuration)
+        }
+
         return batchSucceeded && !hasScanError
     }
 
@@ -1181,6 +1187,16 @@ final class ProcessingQueue {
             return false
         }
 
+        let scanStart = CFAbsoluteTimeGetCurrent()
+        var shouldRecordDuration = false
+        defer {
+            guard shouldRecordDuration else { return }
+            let duration = CFAbsoluteTimeGetCurrent() - scanStart
+            Task { @MainActor in
+                PerformanceMetricsStore.shared.recordDuration(.processingScanDuration, seconds: duration)
+            }
+        }
+
         switch snapshot.status {
         case .filed:
             return true
@@ -1188,6 +1204,7 @@ final class ProcessingQueue {
             return false
         case .structured:
             do {
+                shouldRecordDuration = true
                 let writerInput = try writerInput(from: snapshot)
                 return await fileStructuredScan(objectID: objectID, context: context, writerInput: writerInput)
             } catch {
@@ -1198,6 +1215,7 @@ final class ProcessingQueue {
             break
         }
 
+        shouldRecordDuration = true
         await context.perform {
             guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return }
             scan.status = ScanStatus.transcribing.rawValue
