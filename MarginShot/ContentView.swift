@@ -21,6 +21,7 @@ enum AppMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedMode: AppMode = .capture
+    @State private var preferredBatchId: UUID?
     @State private var syncState: SyncState = .idle
     @Environment(\.scenePhase) private var scenePhase
 
@@ -30,9 +31,12 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     HeaderView(mode: selectedMode, syncState: syncState)
                     TabView(selection: $selectedMode) {
-                        CaptureView()
+                        CaptureView { batchId in
+                            preferredBatchId = batchId
+                            selectedMode = .chat
+                        }
                             .tag(AppMode.capture)
-                        ChatView()
+                        ChatView(preferredBatchId: $preferredBatchId)
                             .tag(AppMode.chat)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))

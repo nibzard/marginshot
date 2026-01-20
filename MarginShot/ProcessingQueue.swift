@@ -93,7 +93,7 @@ enum VaultWriter {
         let rootURL = try vaultRootURL()
         let folder = input.structured.classification.folder
         let noteResult = try writeNote(input: input, rootURL: rootURL, folder: folder)
-        let metadataPath = metadataPath(for: input.processedImagePath ?? input.imagePath)
+        let metadataPath = VaultScanStore.metadataPath(for: input.processedImagePath ?? input.imagePath)
         let metadataURL = rootURL.appendingPathComponent(metadataPath)
         let metadata = ScanMetadata(
             scanId: input.scanId.uuidString,
@@ -194,24 +194,6 @@ enum VaultWriter {
     private static func shouldAppendRawTranscript(to markdown: String) -> Bool {
         let lowercased = markdown.lowercased()
         return !lowercased.contains("raw transcription") && !lowercased.contains("raw transcript")
-    }
-
-    private static func metadataPath(for imagePath: String) -> String {
-        let nsPath = imagePath as NSString
-        let directory = nsPath.deletingLastPathComponent
-        let baseName = nsPath.deletingPathExtension
-        let fileBase = (baseName as NSString).lastPathComponent
-        let trimmedBase: String
-        if fileBase.hasSuffix("-raw") {
-            trimmedBase = String(fileBase.dropLast(4))
-        } else {
-            trimmedBase = fileBase
-        }
-        let fileName = "\(trimmedBase).json"
-        if directory.isEmpty {
-            return fileName
-        }
-        return (directory as NSString).appendingPathComponent(fileName)
     }
 
     private static func sanitizeFileName(_ title: String) -> String {

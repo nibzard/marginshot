@@ -48,7 +48,7 @@ final class ChatAgent {
         ChatAgent(client: try GeminiClient.makeDefault())
     }
 
-    func respond(to query: String) async throws -> ChatResponse {
+    func respond(to query: String, preferredBatchId: UUID? = nil) async throws -> ChatResponse {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw ChatAgentError.emptyQuery
@@ -56,6 +56,7 @@ final class ChatAgent {
 
         let context = await indexStore.retrieveContextBundle(
             query: trimmed,
+            preferredBatchId: preferredBatchId,
             maxResults: maxResults,
             maxLinkedNotes: maxLinkedNotes,
             maxCharactersPerNote: maxCharactersPerNote

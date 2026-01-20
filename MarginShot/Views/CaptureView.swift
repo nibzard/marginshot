@@ -18,6 +18,13 @@ struct CaptureView: View {
     )
     private var inboxScans: FetchedResults<ScanEntity>
     @State private var isInboxPresented = false
+    @State private var isBatchPromptPresented = false
+    @State private var completedBatchId: UUID?
+    let onAskAboutBatch: (UUID) -> Void
+
+    init(onAskAboutBatch: @escaping (UUID) -> Void = { _ in }) {
+        self.onAskAboutBatch = onAskAboutBatch
+    }
 
     var body: some View {
         ZStack {
@@ -58,6 +65,18 @@ struct CaptureView: View {
         }
         .sheet(isPresented: $isInboxPresented) {
             InboxSheet(viewModel: viewModel)
+        }
+        .confirmationDialog("Batch queued", isPresented: $isBatchPromptPresented, titleVisibility: .visible) {
+            Button("Ask about this") {
+                guard let batchId = completedBatchId else { return }
+                completedBatchId = nil
+                onAskAboutBatch(batchId)
+            }
+            Button("Not now", role: .cancel) {
+                completedBatchId = nil
+            }
+        } message: {
+            Text("Processing in background. Ask about this batch while we finish organizing.")
         }
     }
 
@@ -121,7 +140,10 @@ struct CaptureView: View {
                 Text("Scans: \(viewModel.scanCount)")
                 if viewModel.scanCount > 0 {
                     Button("Finish") {
-                        viewModel.finishBatch()
+                        if let batchId = viewModel.finishBatch() {
+                            completedBatchId = batchId
+                            isBatchPromptPresented = true
+                        }
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 8)
@@ -613,25 +635,29 @@ final class CaptureViewModel: ObservableObject {
         }
     }
 
-    func finishBatch() {
+    @discardableResult
+    func finishBatch() -> UUID? {
         guard let context else { return }
         guard let objectID = currentBatchObjectID,
               let batch = try? context.existingObject(with: objectID) as? BatchEntity else {
             resetBatchSession()
             statusText = "Batch reset"
-            return
+            return nil
         }
 
         batch.status = BatchStatus.queued.rawValue
         batch.updatedAt = Date()
+        let finishedBatchId = batch.id
 
         do {
             try context.save()
             statusText = "Batch queued"
             ProcessingQueue.shared.enqueuePendingProcessing()
             resetBatchSession()
+            return finishedBatchId
         } catch {
             statusText = "Batch update failed"
+            return nil
         }
     }
 
@@ -1020,6 +1046,24 @@ enum VaultScanStore {
         let processedURL = try url(for: processedPath)
         try processedData.write(to: processedURL, options: .atomic)
         return processedPath
+    }
+
+    static func metadataPath(for imagePath: String) -> String {
+        let nsPath = imagePath as NSString
+        let directory = nsPath.deletingLastPathComponent
+        let baseName = nsPath.deletingPathExtension
+        let fileBase = (baseName as NSString).lastPathComponent
+        let trimmedBase: String
+        if fileBase.hasSuffix("-raw") {
+            trimmedBase = String(fileBase.dropLast(4))
+        } else {
+            trimmedBase = fileBase
+        }
+        let fileName = "\(trimmedBase).json"
+        if directory.isEmpty {
+            return fileName
+        }
+        return (directory as NSString).appendingPathComponent(fileName)
     }
 
     static func url(for relativePath: String) throws -> URL {

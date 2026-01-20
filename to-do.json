@@ -316,7 +316,7 @@
       "id": "T015",
       "title": "Add the Ask about this capture-to-chat flow",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "After finishing a batch, jump to chat and prioritize the latest batch context.",
       "tags": [
         "chat",
@@ -326,6 +326,16 @@
       "depends_on": [
         "T006",
         "T014"
+      ],
+      "updated_at": "2026-01-20T16:40:34Z",
+      "files": [
+        "MarginShot/ContentView.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "MarginShot/ChatAgent.swift",
+        "MarginShot/VaultIndexStore.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ]
     },
     {

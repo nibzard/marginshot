@@ -60,6 +60,7 @@ final class VaultIndexStore {
     private let decoder: JSONDecoder
     private let isoFormatter: ISO8601DateFormatter
     private let sqliteQueue = DispatchQueue(label: "marginshot.index.sqlite")
+    private let persistenceController: PersistenceController
 
     private init() {
         let encoder = JSONEncoder()
@@ -68,6 +69,7 @@ final class VaultIndexStore {
         self.decoder = JSONDecoder()
         self.isoFormatter = ISO8601DateFormatter()
         self.isoFormatter.formatOptions = [.withInternetDateTime]
+        self.persistenceController = PersistenceController.shared
     }
 
     func updateAfterNoteWrite(
@@ -102,6 +104,7 @@ final class VaultIndexStore {
 
     func retrieveContextBundle(
         query: String,
+        preferredBatchId: UUID? = nil,
         maxResults: Int = 6,
         maxLinkedNotes: Int = 4,
         maxCharactersPerNote: Int = 2000
@@ -127,16 +130,31 @@ final class VaultIndexStore {
             var selectedPaths = Set<String>()
             var snippetByPath: [String: String] = [:]
 
-            for match in searchMatches {
-                let entry = snapshot.notes.first(where: { $0.path == match.path })
-                    ?? fallbackEntry(path: match.path, title: match.title)
-                guard selectedPaths.insert(entry.path).inserted else { continue }
-                selectedEntries.append(entry)
-                if let snippet = match.snippet, !snippet.isEmpty {
-                    snippetByPath[entry.path] = snippet
+            if let preferredBatchId {
+                let batchEntries = await loadBatchEntries(
+                    batchId: preferredBatchId,
+                    snapshot: snapshot,
+                    rootURL: rootURL,
+                    maxNotes: maxResults
+                )
+                for entry in batchEntries {
+                    guard selectedPaths.insert(entry.path).inserted else { continue }
+                    selectedEntries.append(entry)
                 }
-                if selectedEntries.count >= maxResults {
-                    break
+            }
+
+            if selectedEntries.count < maxResults {
+                for match in searchMatches {
+                    let entry = snapshot.notes.first(where: { $0.path == match.path })
+                        ?? fallbackEntry(path: match.path, title: match.title)
+                    guard selectedPaths.insert(entry.path).inserted else { continue }
+                    selectedEntries.append(entry)
+                    if let snippet = match.snippet, !snippet.isEmpty {
+                        snippetByPath[entry.path] = snippet
+                    }
+                    if selectedEntries.count >= maxResults {
+                        break
+                    }
                 }
             }
 
@@ -272,6 +290,17 @@ final class VaultIndexStore {
         let snippet: String?
     }
 
+    private struct BatchScanPath {
+        let imagePath: String
+        let processedImagePath: String?
+        let capturedAt: Date
+    }
+
+    private struct BatchMetadataReference: Decodable {
+        let notePath: String
+        let noteTitle: String?
+    }
+
     private struct ScoredEntry {
         let entry: IndexNoteEntry
         let score: Int
@@ -371,6 +400,75 @@ final class VaultIndexStore {
             }
             return $0.score > $1.score
         }
+    }
+
+    private func loadBatchEntries(
+        batchId: UUID,
+        snapshot: IndexSnapshot,
+        rootURL: URL,
+        maxNotes: Int
+    ) async -> [IndexNoteEntry] {
+        let scanPaths = await loadBatchScanPaths(batchId: batchId)
+        guard !scanPaths.isEmpty, maxNotes > 0 else { return [] }
+
+        var entries: [IndexNoteEntry] = []
+        var seenPaths = Set<String>()
+        for scan in scanPaths {
+            guard let metadata = loadBatchMetadata(for: scan, rootURL: rootURL) else { continue }
+            let path = metadata.notePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty, seenPaths.insert(path).inserted else { continue }
+            let title = resolvedNoteTitle(path: path, title: metadata.noteTitle)
+            let entry = snapshot.notes.first(where: { $0.path == path })
+                ?? IndexNoteEntry(
+                    path: path,
+                    title: title,
+                    summary: nil,
+                    tags: nil,
+                    links: nil,
+                    updatedAt: nil
+                )
+            entries.append(entry)
+            if entries.count >= maxNotes {
+                break
+            }
+        }
+        return entries
+    }
+
+    private func loadBatchScanPaths(batchId: UUID) async -> [BatchScanPath] {
+        let context = persistenceController.container.newBackgroundContext()
+        return await context.perform {
+            let request = ScanEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "batch.id == %@", batchId as CVarArg)
+            request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+            do {
+                return try context.fetch(request).map { scan in
+                    BatchScanPath(
+                        imagePath: scan.imagePath,
+                        processedImagePath: scan.processedImagePath,
+                        capturedAt: scan.createdAt
+                    )
+                }
+            } catch {
+                return []
+            }
+        }
+    }
+
+    private func loadBatchMetadata(for scan: BatchScanPath, rootURL: URL) -> BatchMetadataReference? {
+        let imagePath = scan.processedImagePath ?? scan.imagePath
+        let metadataPath = VaultScanStore.metadataPath(for: imagePath)
+        let metadataURL = rootURL.appendingPathComponent(metadataPath)
+        guard fileManager.fileExists(atPath: metadataURL.path),
+              let data = try? Data(contentsOf: metadataURL) else {
+            return nil
+        }
+        return try? decoder.decode(BatchMetadataReference.self, from: data)
+    }
+
+    private func resolvedNoteTitle(path: String, title: String?) -> String {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? titleFromPath(path) : trimmed
     }
 
     private func buildLinkLookup(_ entries: [IndexNoteEntry]) -> [String: IndexNoteEntry] {

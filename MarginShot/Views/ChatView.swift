@@ -2,10 +2,12 @@ import SwiftUI
 
 struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
+    @Binding var preferredBatchId: UUID?
     @State private var expandedSources: Set<UUID> = []
     private let bottomAnchor = "chat-bottom"
 
-    init(viewModel: ChatViewModel = ChatViewModel()) {
+    init(preferredBatchId: Binding<UUID?> = .constant(nil), viewModel: ChatViewModel = ChatViewModel()) {
+        _preferredBatchId = preferredBatchId
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
@@ -16,6 +18,12 @@ struct ChatView: View {
                 conversation
                 inputBar
             }
+        }
+        .onAppear {
+            viewModel.preferredBatchId = preferredBatchId
+        }
+        .onChange(of: preferredBatchId) { newValue in
+            viewModel.preferredBatchId = newValue
         }
     }
 
@@ -177,6 +185,7 @@ final class ChatViewModel: ObservableObject {
     @Published var isThinking = false
 
     private var agent: ChatAgent?
+    var preferredBatchId: UUID?
 
     init(agent: ChatAgent? = nil) {
         self.agent = agent
@@ -192,10 +201,11 @@ final class ChatViewModel: ObservableObject {
         draft = ""
         messages.append(ChatMessage(role: .user, text: trimmed))
         isThinking = true
+        let batchId = preferredBatchId
 
         Task { [weak self] in
             guard let self else { return }
-            let response = await self.respond(to: trimmed)
+            let response = await self.respond(to: trimmed, preferredBatchId: batchId)
             await MainActor.run {
                 self.messages.append(response)
                 self.isThinking = false
@@ -203,10 +213,10 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func respond(to query: String) async -> ChatMessage {
+    private func respond(to query: String, preferredBatchId: UUID?) async -> ChatMessage {
         do {
             let agent = try ensureAgent()
-            let response = try await agent.respond(to: query)
+            let response = try await agent.respond(to: query, preferredBatchId: preferredBatchId)
             return ChatMessage(
                 role: .assistant,
                 text: response.answer,
