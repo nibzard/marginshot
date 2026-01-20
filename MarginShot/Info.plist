@@ -2,10 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>MarginShot</string>
+	<key>CFBundleName</key>
+	<string>MarginShot</string>
 	<key>CFBundleDisplayName</key>
 	<string>MarginShot</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>MarginShot</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>marginshot</string>
+			</array>
+		</dict>
+	</array>
+	<key>GitHubClientID</key>
+	<string></string>
+	<key>GitHubRedirectURI</key>
+	<string>marginshot://github-auth</string>
 	<key>GeminiAPIKey</key>
 	<string></string>
 	<key>GeminiModelName</key>

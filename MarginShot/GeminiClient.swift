@@ -274,6 +274,7 @@ enum KeychainStoreError: Error {
 
 enum KeychainStore {
     static let geminiAPIKeyKey = "GeminiAPIKey"
+    static let githubAccessTokenKey = "GitHubAccessToken"
     private static let service = Bundle.main.bundleIdentifier ?? "MarginShot"
 
     static func readString(forKey key: String) -> String? {

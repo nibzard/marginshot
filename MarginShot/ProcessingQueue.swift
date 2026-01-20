@@ -1362,8 +1362,20 @@ actor SyncCoordinator {
         let prefs = SyncPreferences()
         await SyncStatusStore.shared.updateDestination(prefs.destination)
         guard !isSyncing else { return }
-        guard prefs.destination == .folder else { return }
         guard await constraintsSatisfied(prefs) else { return }
+        switch prefs.destination {
+        case .off:
+            return
+        case .folder:
+            await performFolderSync(trigger: trigger)
+        case .github:
+            await performGitHubSync(trigger: trigger)
+        case .gitRemote:
+            await SyncStatusStore.shared.markError("Custom Git remote sync is not available yet.")
+        }
+    }
+
+    private func performFolderSync(trigger: SyncTrigger) async {
         guard let destinationURL = SyncFolderSelection.resolveURL() else {
             await SyncStatusStore.shared.markError("Select a folder in Settings to enable sync.")
             return
@@ -1382,6 +1394,51 @@ actor SyncCoordinator {
         }
     }
 
+    private func performGitHubSync(trigger: SyncTrigger) async {
+        isSyncing = true
+        await SyncStatusStore.shared.markSyncing()
+        defer { isSyncing = false }
+
+        do {
+            try await performWithRetries(maxAttempts: 3, baseDelay: 2) {
+                try await GitHubSyncer.syncVault()
+            }
+            await SyncStatusStore.shared.markIdle()
+        } catch {
+            print("Sync failed (\(trigger.rawValue)): \(error)")
+            let message = (error as? GitHubSyncError)?.localizedDescription ?? "Sync failed. \(error.localizedDescription)"
+            await SyncStatusStore.shared.markError(message)
+        }
+    }
+
+    private func performWithRetries(
+        maxAttempts: Int,
+        baseDelay: TimeInterval,
+        operation: @escaping () async throws -> Void
+    ) async throws {
+        var attempt = 0
+        while true {
+            do {
+                try await operation()
+                return
+            } catch {
+                attempt += 1
+                if attempt >= maxAttempts || !shouldRetry(error) {
+                    throw error
+                }
+                let delay = min(baseDelay * pow(2, Double(attempt - 1)), 30)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+        }
+    }
+
+    private func shouldRetry(_ error: Error) -> Bool {
+        if let syncError = error as? GitHubSyncError {
+            return syncError.isRetryable
+        }
+        return true
+    }
+
     private func constraintsSatisfied(_ prefs: SyncPreferences) async -> Bool {
         if prefs.requiresExternalPower {
             let hasPower = await MainActor.run {
@@ -1396,5 +1453,459 @@ actor SyncCoordinator {
             guard wifiAvailable else { return false }
         }
         return true
+    }
+}
+
+struct GitHubRepoSelection {
+    let owner: String
+    let name: String
+    let branch: String
+
+    static func load() -> GitHubRepoSelection? {
+        let defaults = UserDefaults.standard
+        let owner = defaults.string(forKey: GitHubDefaults.repoOwnerKey) ?? ""
+        let name = defaults.string(forKey: GitHubDefaults.repoNameKey) ?? ""
+        let branch = defaults.string(forKey: GitHubDefaults.repoBranchKey) ?? ""
+        guard !owner.isEmpty, !name.isEmpty else {
+            return nil
+        }
+        return GitHubRepoSelection(owner: owner, name: name, branch: branch.isEmpty ? "main" : branch)
+    }
+}
+
+enum GitHubSyncError: LocalizedError {
+    case missingToken
+    case missingRepository
+    case vaultUnavailable
+    case unauthorized
+    case rateLimited
+    case serverError(Int)
+    case apiError(String)
+    case transportError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingToken:
+            return "Connect GitHub in Settings to enable sync."
+        case .missingRepository:
+            return "Select a GitHub repository in Settings to enable sync."
+        case .vaultUnavailable:
+            return "Vault is unavailable for GitHub sync."
+        case .unauthorized:
+            return "GitHub authorization expired. Sign in again."
+        case .rateLimited:
+            return "GitHub rate limit exceeded. Try again later."
+        case .serverError(let status):
+            return "GitHub server error (\(status)). Try again later."
+        case .apiError(let message):
+            return "GitHub sync failed. \(message)"
+        case .transportError(let message):
+            return "GitHub sync failed. \(message)"
+        }
+    }
+
+    var isRetryable: Bool {
+        switch self {
+        case .serverError, .transportError:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+enum GitHubSyncer {
+    private static let fileManager = FileManager.default
+
+    static func syncVault() async throws {
+        guard let token = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) else {
+            throw GitHubSyncError.missingToken
+        }
+        guard let selection = GitHubRepoSelection.load() else {
+            throw GitHubSyncError.missingRepository
+        }
+        let vaultURL = try vaultRootURL()
+        let lastSyncAt = UserDefaults.standard.object(forKey: GitHubDefaults.lastSyncAtKey) as? Date
+        let files = try changedFiles(in: vaultURL, since: lastSyncAt)
+        guard !files.isEmpty else { return }
+
+        for file in files {
+            try await upload(file: file, selection: selection, token: token)
+        }
+        UserDefaults.standard.set(Date(), forKey: GitHubDefaults.lastSyncAtKey)
+    }
+
+    private struct VaultFile {
+        let url: URL
+        let relativePath: String
+        let modifiedAt: Date?
+    }
+
+    private static func changedFiles(in rootURL: URL, since date: Date?) throws -> [VaultFile] {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey]
+        guard let enumerator = fileManager.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var files: [VaultFile] = []
+        for case let fileURL as URL in enumerator {
+            let values = try fileURL.resourceValues(forKeys: keys)
+            if values.isDirectory == true {
+                continue
+            }
+            let modifiedAt = values.contentModificationDate
+            if let date, let modifiedAt, modifiedAt <= date {
+                continue
+            }
+            let relativePath = relativePath(from: rootURL, to: fileURL)
+            files.append(VaultFile(url: fileURL, relativePath: relativePath, modifiedAt: modifiedAt))
+        }
+        return files.sorted { $0.relativePath < $1.relativePath }
+    }
+
+    private static func upload(
+        file: VaultFile,
+        selection: GitHubRepoSelection,
+        token: String
+    ) async throws {
+        do {
+            let data = try Data(contentsOf: file.url)
+            let content = data.base64EncodedString()
+            let message = "Sync vault: \(file.relativePath)"
+            try await putContentWithSHAFallback(
+                token: token,
+                selection: selection,
+                relativePath: file.relativePath,
+                content: content,
+                message: message
+            )
+        } catch let syncError as GitHubSyncError {
+            throw syncError
+        } catch let apiError as GitHubAPIError {
+            throw mapGitHubError(apiError)
+        } catch {
+            throw GitHubSyncError.transportError(error.localizedDescription)
+        }
+    }
+
+    private static func putContentWithSHAFallback(
+        token: String,
+        selection: GitHubRepoSelection,
+        relativePath: String,
+        content: String,
+        message: String
+    ) async throws {
+        do {
+            try await GitHubAPI.putContent(
+                token: token,
+                owner: selection.owner,
+                repo: selection.name,
+                path: relativePath,
+                branch: selection.branch,
+                content: content,
+                message: message,
+                sha: nil
+            )
+        } catch let apiError as GitHubAPIError where apiError == .requiresSha {
+            guard let sha = try await GitHubAPI.fetchContentSHA(
+                token: token,
+                owner: selection.owner,
+                repo: selection.name,
+                path: relativePath,
+                branch: selection.branch
+            ) else {
+                throw GitHubSyncError.apiError("Missing remote file SHA for \(relativePath).")
+            }
+            try await GitHubAPI.putContent(
+                token: token,
+                owner: selection.owner,
+                repo: selection.name,
+                path: relativePath,
+                branch: selection.branch,
+                content: content,
+                message: message,
+                sha: sha
+            )
+        }
+    }
+
+    private static func mapGitHubError(_ error: GitHubAPIError) -> GitHubSyncError {
+        switch error {
+        case .unauthorized:
+            return .unauthorized
+        case .rateLimited:
+            return .rateLimited
+        case .serverError(let status, _):
+            return .serverError(status)
+        case .notFound:
+            return .apiError("Repository or path not found.")
+        case .invalidResponse:
+            return .transportError("Invalid response from GitHub.")
+        case .requiresSha:
+            return .apiError("GitHub requires a file SHA to update content.")
+        case .apiError(let message):
+            return .apiError(message)
+        default:
+            return .transportError(error.localizedDescription)
+        }
+    }
+
+    private static func vaultRootURL() throws -> URL {
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw GitHubSyncError.vaultUnavailable
+        }
+        return documentsURL.appendingPathComponent("vault", isDirectory: true)
+    }
+
+    private static func relativePath(from baseURL: URL, to fileURL: URL) -> String {
+        let basePath = baseURL.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(basePath) else {
+            return fileURL.lastPathComponent
+        }
+        var relative = String(filePath.dropFirst(basePath.count))
+        if relative.hasPrefix("/") {
+            relative.removeFirst()
+        }
+        return relative
+    }
+}
+
+struct GitHubUser: Decodable {
+    let login: String
+}
+
+struct GitHubRepo: Identifiable, Decodable {
+    let id: Int
+    let name: String
+    let fullName: String
+    let owner: GitHubRepoOwner
+    let isPrivate: Bool
+    let defaultBranch: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case fullName = "full_name"
+        case owner
+        case isPrivate = "private"
+        case defaultBranch = "default_branch"
+    }
+}
+
+struct GitHubRepoOwner: Decodable {
+    let login: String
+}
+
+struct GitHubContentResponse: Decodable {
+    let sha: String
+}
+
+struct GitHubTokenResponse: Decodable {
+    let accessToken: String?
+    let error: String?
+    let errorDescription: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case error
+        case errorDescription = "error_description"
+    }
+}
+
+struct GitHubAPIErrorResponse: Decodable {
+    let message: String?
+}
+
+enum GitHubAPIError: Error, Equatable {
+    case invalidResponse
+    case unauthorized
+    case notFound
+    case rateLimited
+    case requiresSha
+    case serverError(Int, String?)
+    case apiError(String)
+}
+
+enum GitHubAPI {
+    private static let baseURL = URL(string: "https://api.github.com")!
+
+    static func fetchUser(token: String) async throws -> GitHubUser {
+        let url = baseURL.appendingPathComponent("user")
+        var request = authorizedRequest(url: url, token: token)
+        let (data, _) = try await performRequest(request)
+        return try JSONDecoder().decode(GitHubUser.self, from: data)
+    }
+
+    static func fetchRepos(token: String) async throws -> [GitHubRepo] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("user/repos"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "per_page", value: "100"),
+            URLQueryItem(name: "sort", value: "updated"),
+            URLQueryItem(name: "direction", value: "desc"),
+            URLQueryItem(name: "affiliation", value: "owner,collaborator,organization_member")
+        ]
+        guard let url = components?.url else {
+            throw GitHubAPIError.invalidResponse
+        }
+        var request = authorizedRequest(url: url, token: token)
+        let (data, _) = try await performRequest(request)
+        return try JSONDecoder().decode([GitHubRepo].self, from: data)
+    }
+
+    static func fetchContentSHA(
+        token: String,
+        owner: String,
+        repo: String,
+        path: String,
+        branch: String
+    ) async throws -> String? {
+        var components = URLComponents(url: contentsURL(owner: owner, repo: repo, path: path), resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "ref", value: branch)
+        ]
+        guard let url = components?.url else {
+            throw GitHubAPIError.invalidResponse
+        }
+        var request = authorizedRequest(url: url, token: token)
+        do {
+            let (data, _) = try await performRequest(request)
+            let response = try JSONDecoder().decode(GitHubContentResponse.self, from: data)
+            return response.sha
+        } catch let error as GitHubAPIError where error == .notFound {
+            return nil
+        }
+    }
+
+    static func putContent(
+        token: String,
+        owner: String,
+        repo: String,
+        path: String,
+        branch: String,
+        content: String,
+        message: String,
+        sha: String?
+    ) async throws {
+        let url = contentsURL(owner: owner, repo: repo, path: path)
+        var request = authorizedRequest(url: url, token: token, method: "PUT")
+        let payload = GitHubCreateContentRequest(
+            message: message,
+            content: content,
+            branch: branch,
+            sha: sha
+        )
+        request.httpBody = try JSONEncoder().encode(payload)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubAPIError.invalidResponse
+        }
+        if (200...299).contains(http.statusCode) {
+            return
+        }
+        if http.statusCode == 422 {
+            throw GitHubAPIError.requiresSha
+        }
+        try handleError(data, response: http)
+    }
+
+    static func exchangeCodeForToken(
+        clientID: String,
+        code: String,
+        redirectURI: String,
+        codeVerifier: String
+    ) async throws -> String {
+        guard let url = URL(string: "https://github.com/login/oauth/access_token") else {
+            throw GitHubAPIError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let body = formURLEncoded([
+            "client_id": clientID,
+            "code": code,
+            "redirect_uri": redirectURI,
+            "code_verifier": codeVerifier
+        ])
+        request.httpBody = body.data(using: .utf8)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            try handleError(data, response: http)
+        }
+        let tokenResponse = try JSONDecoder().decode(GitHubTokenResponse.self, from: data)
+        if let accessToken = tokenResponse.accessToken {
+            return accessToken
+        }
+        if let errorDescription = tokenResponse.errorDescription {
+            throw GitHubAPIError.apiError(errorDescription)
+        }
+        throw GitHubAPIError.apiError("Missing access token.")
+    }
+
+    private static func authorizedRequest(url: URL, token: String, method: String = "GET") -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("MarginShot", forHTTPHeaderField: "User-Agent")
+        return request
+    }
+
+    private static func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw GitHubAPIError.invalidResponse
+        }
+        if (200...299).contains(http.statusCode) {
+            return (data, http)
+        }
+        try handleError(data, response: http)
+    }
+
+    private static func handleError(_ data: Data, response: HTTPURLResponse) throws -> Never {
+        let message = (try? JSONDecoder().decode(GitHubAPIErrorResponse.self, from: data))?.message
+        if response.statusCode == 401 {
+            throw GitHubAPIError.unauthorized
+        }
+        if response.statusCode == 404 {
+            throw GitHubAPIError.notFound
+        }
+        if response.statusCode == 403,
+           response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0" {
+            throw GitHubAPIError.rateLimited
+        }
+        if (500...599).contains(response.statusCode) {
+            throw GitHubAPIError.serverError(response.statusCode, message)
+        }
+        throw GitHubAPIError.apiError(message ?? "HTTP \(response.statusCode)")
+    }
+
+    private static func contentsURL(owner: String, repo: String, path: String) -> URL {
+        var url = baseURL.appendingPathComponent("repos")
+        url.appendPathComponent(owner)
+        url.appendPathComponent(repo)
+        url.appendPathComponent("contents")
+        for component in path.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        return url
+    }
+
+    private static func formURLEncoded(_ parameters: [String: String]) -> String {
+        parameters.map { key, value in
+            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+            return "\(key)=\(encodedValue)"
+        }
+        .joined(separator: "&")
     }
 }

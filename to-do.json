@@ -493,7 +493,7 @@
         "T010",
         "T011"
       ],
-      "updated_at": "2026-01-20T18:02:33Z",
+      "updated_at": "2026-01-20T18:03:58Z",
       "files": [
         "MarginShot/ProcessingPipeline.swift",
         "MarginShot/ProcessingQueue.swift",
@@ -534,7 +534,7 @@
       "id": "T025",
       "title": "Implement GitHub destination sync",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Add OAuth flow, repo selection, and background sync with retries.",
       "tags": [
         "sync",
@@ -543,6 +543,14 @@
       "depends_on": [
         "T017",
         "T018"
+      ],
+      "updated_at": "2026-01-20T18:23:10Z",
+      "files": [
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/GeminiClient.swift",
+        "MarginShot/Info.plist",
+        "to-do.json"
       ]
     },
     {
