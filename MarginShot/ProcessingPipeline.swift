@@ -84,14 +84,14 @@ struct ScanProcessingOutput {
     let structuredJSON: String
 }
 
-struct TranscriptionPayload: Decodable {
+struct TranscriptionPayload: Codable {
     let rawTranscript: String
     let confidence: Double?
     let uncertainSegments: [String]?
     let warnings: [String]?
 }
 
-struct StructurePayload: Decodable {
+struct StructurePayload: Codable {
     let markdown: String
     let noteMeta: NoteMeta
     let classification: Classification
@@ -108,14 +108,14 @@ struct FastProcessingPayload: Decodable {
     let warnings: [String]?
 }
 
-struct NoteMeta: Decodable {
+struct NoteMeta: Codable {
     let title: String
     let summary: String?
     let tags: [String]?
     let links: [String]?
 }
 
-struct Classification: Decodable {
+struct Classification: Codable {
     let folder: String
     let reason: String?
 }
