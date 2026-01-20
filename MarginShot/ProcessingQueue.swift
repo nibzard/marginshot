@@ -1021,7 +1021,7 @@ final class ProcessingQueue {
             guard !requests.contains(where: { $0.identifier == self.taskIdentifier }) else { return }
 
             let request = BGProcessingTaskRequest(identifier: self.taskIdentifier)
-            request.requiresNetworkConnectivity = prefs.requiresWiFi
+            request.requiresNetworkConnectivity = true
             request.requiresExternalPower = prefs.requiresExternalPower
 
             do {
@@ -1079,8 +1079,10 @@ final class ProcessingQueue {
 
     private func hasRequiredNetwork() async -> Bool {
         let prefs = preferences
-        guard prefs.requiresWiFi else { return true }
-        return await NetworkConstraintChecker.isWiFiAvailable()
+        if prefs.requiresWiFi {
+            return await NetworkConstraintChecker.isWiFiAvailable()
+        }
+        return await NetworkConstraintChecker.isNetworkAvailable()
     }
 
     private func processPendingBatches() async -> Bool {
@@ -1489,6 +1491,19 @@ final class ProcessingQueue {
 }
 
 enum NetworkConstraintChecker {
+    static func isNetworkAvailable() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let monitor = NWPathMonitor()
+            let queue = DispatchQueue(label: "marginshot.network.monitor")
+            monitor.pathUpdateHandler = { path in
+                let satisfied = path.status == .satisfied
+                monitor.cancel()
+                continuation.resume(returning: satisfied)
+            }
+            monitor.start(queue: queue)
+        }
+    }
+
     static func isWiFiAvailable() async -> Bool {
         await withCheckedContinuation { continuation in
             let monitor = NWPathMonitor()

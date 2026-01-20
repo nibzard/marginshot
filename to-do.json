@@ -765,12 +765,12 @@
         "vault",
         "llm"
       ],
-      "updated_at": "2026-01-20T20:40:30Z",
+      "updated_at": "2026-01-20T20:41:25Z",
       "files": [
         "MarginShot/OrganizationSettings.swift",
-        "MarginShot/SystemRulesStore.swift",
         "MarginShot/ProcessingPipeline.swift",
         "MarginShot/ProcessingQueue.swift",
+        "MarginShot/SystemRulesStore.swift",
         "MarginShot/VaultIndexStore.swift",
         "to-do.json"
       ]
@@ -803,10 +803,57 @@
         "processing",
         "data"
       ],
-      "updated_at": "2026-01-20T20:43:38Z",
+      "updated_at": "2026-01-20T20:45:40Z",
       "files": [
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
+      ]
+    },
+    {
+      "id": "T037",
+      "title": "Require network connectivity before LLM processing and background tasks",
+      "priority": 2,
+      "status": "done",
+      "details": "When auto-processing with Gemini, only run when any network is available (cellular or Wi-Fi). Set BGProcessingTaskRequest.requiresNetworkConnectivity = true and update hasRequiredNetwork to check general connectivity when Wi-Fi-only is off; reschedule instead of marking scans error when offline.",
+      "tags": [
+        "processing",
+        "network",
+        "background"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T20:54:55Z"
+    },
+    {
+      "id": "T038",
+      "title": "Make batch retry reprocess scans missing processed images",
+      "priority": 2,
+      "status": "todo",
+      "details": "In Capture inbox retry, handle scans in error/preprocessing states without processedImagePath by rerunning DocumentProcessingPipeline from raw images (similar to retryScan) so batch retry can recover all failed scans.",
+      "tags": [
+        "capture",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift"
+      ]
+    },
+    {
+      "id": "T039",
+      "title": "Clean up decrypted temp copies opened from chat",
+      "priority": 3,
+      "status": "todo",
+      "details": "When local encryption is enabled, opening a note from chat writes a decrypted copy under the temp marginshot-decrypted folder; add cleanup (on open completion or app launch) to avoid leaving plaintext files on disk.",
+      "tags": [
+        "security",
+        "chat",
+        "vault"
+      ],
+      "files": [
+        "MarginShot/ChatView.swift",
+        "MarginShot/VaultFileStore.swift"
       ]
     }
   ]
