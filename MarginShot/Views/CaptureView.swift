@@ -22,6 +22,11 @@ struct CaptureView: View {
         predicate: NSPredicate(format: "status != %@", ScanStatus.filed.rawValue)
     )
     private var inboxScans: FetchedResults<ScanEntity>
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \BatchEntity.createdAt, ascending: false)],
+        predicate: NSPredicate(format: "status == %@", BatchStatus.open.rawValue)
+    )
+    private var openBatches: FetchedResults<BatchEntity>
     @State private var isInboxPresented = false
     @State private var isSettingsPresented = false
     @State private var isNotebookPickerPresented = false
@@ -59,6 +64,27 @@ struct CaptureView: View {
         )
     }
 
+    private struct OpenBatchSummary {
+        let batch: BatchEntity
+        let scans: [ScanEntity]
+        let notebookName: String
+    }
+
+    private var openBatchSummary: OpenBatchSummary? {
+        guard viewModel.scanCount == 0 else { return nil }
+        for batch in openBatches {
+            let scans = pendingScans(for: batch)
+            if !scans.isEmpty {
+                return OpenBatchSummary(
+                    batch: batch,
+                    scans: scans,
+                    notebookName: batch.notebook?.name ?? "Default"
+                )
+            }
+        }
+        return nil
+    }
+
     var body: some View {
         ZStack {
             if viewModel.permissionState == .authorized {
@@ -76,6 +102,15 @@ struct CaptureView: View {
 
             VStack {
                 topBar
+                if let summary = openBatchSummary {
+                    OpenBatchBanner(
+                        scanCount: summary.scans.count,
+                        notebookName: summary.notebookName,
+                        onResume: { resumeOpenBatch(summary.batch) },
+                        onQueue: { viewModel.retryBatch(summary.batch) }
+                    )
+                    .padding(.top, 8)
+                }
                 Spacer()
                 captureControls
             }
@@ -105,7 +140,7 @@ struct CaptureView: View {
             refreshNotebookSelection()
         }
         .sheet(isPresented: $isInboxPresented) {
-            InboxSheet(viewModel: viewModel)
+            InboxSheet(viewModel: viewModel, onResumeBatch: resumeOpenBatch)
         }
         .sheet(isPresented: $isNotebookPickerPresented) {
             NotebookPickerView(selectedNotebookId: notebookSelectionBinding)
@@ -133,6 +168,13 @@ struct CaptureView: View {
             selectedNotebookIdRaw = resolvedNotebook.id.uuidString
         }
         viewModel.setSelectedNotebookID(resolvedNotebook.id)
+    }
+
+    private func resumeOpenBatch(_ batch: BatchEntity) {
+        if let notebookId = batch.notebook?.id {
+            selectedNotebookIdRaw = notebookId.uuidString
+        }
+        viewModel.resumeBatch(batch)
     }
 
     private var topBar: some View {
@@ -287,6 +329,49 @@ struct CaptureView: View {
     }
 }
 
+private func pendingScans(for batch: BatchEntity) -> [ScanEntity] {
+    let scans = batch.scans.filter { $0.status != ScanStatus.filed.rawValue }
+    return scans.sorted {
+        let leftPage = $0.pageNumber?.intValue ?? 0
+        let rightPage = $1.pageNumber?.intValue ?? 0
+        if leftPage == rightPage {
+            return $0.createdAt < $1.createdAt
+        }
+        return leftPage < rightPage
+    }
+}
+
+struct OpenBatchBanner: View {
+    let scanCount: Int
+    let notebookName: String
+    let onResume: () -> Void
+    let onQueue: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Open batch found")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+            Text("\(scanCount) scans in \(notebookName)")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.8))
+            HStack(spacing: 12) {
+                Button("Resume") {
+                    onResume()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Queue") {
+                    onQueue()
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 struct ProcessingOverlay: View {
     var body: some View {
         ZStack {
@@ -307,6 +392,7 @@ struct InboxSheet: View {
     private var batches: FetchedResults<BatchEntity>
 
     let viewModel: CaptureViewModel
+    let onResumeBatch: (BatchEntity) -> Void
 
     var body: some View {
         NavigationStack {
@@ -325,10 +411,15 @@ struct InboxSheet: View {
                         } header: {
                             InboxBatchHeader(
                                 batch: section.batch,
-                                scanCount: section.scans.count
-                            ) {
-                                viewModel.retryBatch(section.batch)
-                            }
+                                scanCount: section.scans.count,
+                                onQueue: {
+                                    viewModel.retryBatch(section.batch)
+                                },
+                                onResume: {
+                                    onResumeBatch(section.batch)
+                                    dismiss()
+                                }
+                            )
                         }
                     }
                 }
@@ -347,21 +438,9 @@ struct InboxSheet: View {
 
     private var batchSections: [(batch: BatchEntity, scans: [ScanEntity])] {
         batches.compactMap { batch in
-            let scans = scansForBatch(batch)
+            let scans = pendingScans(for: batch)
             let isOpen = batch.statusEnum == .open
             return (scans.isEmpty && !isOpen) ? nil : (batch: batch, scans: scans)
-        }
-    }
-
-    private func scansForBatch(_ batch: BatchEntity) -> [ScanEntity] {
-        let scans = batch.scans.filter { $0.status != ScanStatus.filed.rawValue }
-        return scans.sorted {
-            let leftPage = $0.pageNumber?.intValue ?? 0
-            let rightPage = $1.pageNumber?.intValue ?? 0
-            if leftPage == rightPage {
-                return $0.createdAt < $1.createdAt
-            }
-            return leftPage < rightPage
         }
     }
 }
@@ -369,7 +448,8 @@ struct InboxSheet: View {
 struct InboxBatchHeader: View {
     let batch: BatchEntity
     let scanCount: Int
-    let onRetry: () -> Void
+    let onQueue: () -> Void
+    let onResume: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -388,14 +468,19 @@ struct InboxBatchHeader: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             if batch.statusEnum == .open {
+                Button("Resume") {
+                    onResume()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 Button("Queue") {
-                    onRetry()
+                    onQueue()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             } else if batch.statusEnum == .blocked || batch.statusEnum == .error {
                 Button("Retry") {
-                    onRetry()
+                    onQueue()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -959,6 +1044,23 @@ final class CaptureViewModel: ObservableObject {
         }
     }
 
+    func resumeBatch(_ batch: BatchEntity) {
+        guard context != nil else { return }
+        guard batch.statusEnum == .open else { return }
+        let scans = pendingScans(for: batch)
+        guard !scans.isEmpty else { return }
+
+        let maxPageNumber = scans.compactMap { $0.pageNumber?.intValue }.max() ?? 0
+        let inferredIndex = max(maxPageNumber, scans.count)
+        let batchFolderId = scans.compactMap { Self.batchFolderId(from: $0.imagePath) }.first
+
+        batchId = batchFolderId ?? UUID().uuidString
+        currentBatchObjectID = batch.objectID
+        pageIndex = inferredIndex
+        scanCount = scans.count
+        statusText = "Resumed batch"
+    }
+
     private func requeueProcessing(for scan: ScanEntity, context: NSManagedObjectContext) {
         scan.status = ScanStatus.captured.rawValue
         if let batch = scan.batch {
@@ -994,6 +1096,16 @@ final class CaptureViewModel: ObservableObject {
         pageIndex = 0
         scanCount = 0
         currentBatchObjectID = nil
+    }
+
+    private static func batchFolderId(from imagePath: String) -> String? {
+        let components = (imagePath as NSString).pathComponents
+        for component in components {
+            guard component.hasPrefix("batch-") else { continue }
+            let suffix = component.dropFirst("batch-".count)
+            return String(suffix)
+        }
+        return nil
     }
 
     private func fetchOrCreateBatch(in context: NSManagedObjectContext) throws -> BatchEntity {
