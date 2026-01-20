@@ -22,14 +22,14 @@ struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedMode: AppMode = .capture
     @State private var preferredBatchId: UUID?
-    @State private var syncState: SyncState = .idle
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var syncStatus: SyncStatusStore
 
     var body: some View {
         Group {
             if hasCompletedOnboarding {
                 VStack(spacing: 0) {
-                    HeaderView(mode: selectedMode, syncState: syncState)
+                    HeaderView(mode: selectedMode, syncState: syncStatus.state)
                     TabView(selection: $selectedMode) {
                         CaptureView { batchId in
                             preferredBatchId = batchId
@@ -45,6 +45,9 @@ struct ContentView: View {
             } else {
                 OnboardingView(isComplete: $hasCompletedOnboarding)
             }
+        }
+        .onAppear {
+            syncStatus.refreshDestination()
         }
         .task(id: hasCompletedOnboarding) {
             guard hasCompletedOnboarding else { return }
@@ -167,4 +170,5 @@ enum VaultBootstrapError: Error {
 #Preview {
     ContentView()
         .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+        .environmentObject(SyncStatusStore.shared)
 }

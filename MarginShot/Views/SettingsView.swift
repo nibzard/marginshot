@@ -62,6 +62,7 @@ extension ProcessingQualityMode {
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var syncStatus: SyncStatusStore
 
     @AppStorage("processingAutoProcessInbox") private var autoProcessInbox = true
     @AppStorage("processingQualityMode") private var processingQualityModeRaw = ProcessingQualityMode.balanced.rawValue
@@ -111,6 +112,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                syncStatusBanner
+
                 Section("Processing") {
                     Toggle("Auto-process inbox", isOn: $autoProcessInbox)
                     Picker("Quality mode", selection: processingQualityMode) {
@@ -143,6 +146,7 @@ struct SettingsView: View {
                                 Button("Clear Folder") {
                                     syncFolderBookmark = Data()
                                     syncFolderDisplayName = ""
+                                    syncStatus.markError("Select a folder in Settings to enable sync.")
                                 }
                             }
                         }
@@ -187,6 +191,16 @@ struct SettingsView: View {
                 }
             }
         }
+        .onAppear {
+            syncStatus.refreshDestination()
+        }
+        .onChange(of: syncDestinationRaw) { newValue in
+            let resolved = SyncDestination(rawValue: newValue) ?? .off
+            syncStatus.updateDestination(resolved)
+            if resolved == .folder, syncFolderDisplayName.isEmpty {
+                syncStatus.markError("Select a folder in Settings to enable sync.")
+            }
+        }
         .fileImporter(
             isPresented: $isPickingSyncFolder,
             allowedContentTypes: [.folder],
@@ -209,6 +223,7 @@ struct SettingsView: View {
                     )
                     syncFolderBookmark = bookmark
                     syncFolderDisplayName = url.lastPathComponent
+                    syncStatus.clearError()
                 } catch {
                     print("Failed to store sync folder bookmark: \(error)")
                 }
@@ -217,8 +232,36 @@ struct SettingsView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var syncStatusBanner: some View {
+        if syncStatus.state == .error {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Sync needs attention")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    Text(syncStatus.lastErrorMessage ?? "Sync failed. Try again.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Retry now") {
+                        Task {
+                            await SyncCoordinator.shared.syncIfNeeded(trigger: .manual)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
 }
 
 #Preview {
     SettingsView()
+        .environmentObject(SyncStatusStore.shared)
 }

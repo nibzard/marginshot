@@ -864,19 +864,26 @@ actor SyncCoordinator {
     private var isSyncing = false
 
     func syncIfNeeded(trigger: SyncTrigger) async {
-        guard !isSyncing else { return }
         let prefs = SyncPreferences()
+        await SyncStatusStore.shared.updateDestination(prefs.destination)
+        guard !isSyncing else { return }
         guard prefs.destination == .folder else { return }
         guard await constraintsSatisfied(prefs) else { return }
-        guard let destinationURL = SyncFolderSelection.resolveURL() else { return }
+        guard let destinationURL = SyncFolderSelection.resolveURL() else {
+            await SyncStatusStore.shared.markError("Select a folder in Settings to enable sync.")
+            return
+        }
 
         isSyncing = true
+        await SyncStatusStore.shared.markSyncing()
         defer { isSyncing = false }
 
         do {
             try FolderSyncer.syncVault(to: destinationURL)
+            await SyncStatusStore.shared.markIdle()
         } catch {
             print("Sync failed (\(trigger.rawValue)): \(error)")
+            await SyncStatusStore.shared.markError("Sync failed. \(error.localizedDescription)")
         }
     }
 

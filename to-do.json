@@ -373,7 +373,7 @@
         "T010",
         "T016"
       ],
-      "updated_at": "2026-01-20T16:57:21Z",
+      "updated_at": "2026-01-20T16:57:55Z",
       "files": [
         "MarginShot/ProcessingQueue.swift",
         "MarginShot/Views/SettingsView.swift",
@@ -384,7 +384,7 @@
       "id": "T018",
       "title": "Add sync status UI and error handling",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Show sync status in the header, expose settings banners, and add retry flows.",
       "tags": [
         "sync",
@@ -392,6 +392,17 @@
       ],
       "depends_on": [
         "T017"
+      ],
+      "updated_at": "2026-01-20T17:07:25Z",
+      "files": [
+        "MarginShot/SyncStatusStore.swift",
+        "MarginShot/Views/HeaderView.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

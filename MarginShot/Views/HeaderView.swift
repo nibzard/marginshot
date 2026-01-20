@@ -1,12 +1,15 @@
 import SwiftUI
 
 enum SyncState: String {
+    case off
     case idle
     case syncing
     case error
 
     var iconName: String {
         switch self {
+        case .off:
+            return "minus.circle"
         case .idle:
             return "checkmark.circle"
         case .syncing:
@@ -18,6 +21,8 @@ enum SyncState: String {
 
     var accessibilityLabel: String {
         switch self {
+        case .off:
+            return "Sync off"
         case .idle:
             return "Sync idle"
         case .syncing:
@@ -29,6 +34,8 @@ enum SyncState: String {
 
     var tint: Color {
         switch self {
+        case .off:
+            return .secondary
         case .idle:
             return .secondary
         case .syncing:
