@@ -51,6 +51,13 @@ struct VaultWriteResult {
     let notePath: String
     let noteTitle: String
     let metadataPath: String
+    let noteMeta: NoteMeta
+    let createdEntities: [EntityPage]
+}
+
+struct EntityPage: Equatable {
+    let path: String
+    let title: String
 }
 
 struct ScanMetadata: Codable {
@@ -75,6 +82,7 @@ enum VaultWriterError: Error {
 enum VaultWriter {
     private static let fileManager = FileManager.default
     private static let dailyFolder = "01_daily"
+    private static let entityFolder = "10_projects"
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -95,8 +103,9 @@ enum VaultWriter {
 
     static func apply(input: VaultWriterInput) throws -> VaultWriteResult {
         let rootURL = try vaultRootURL()
-        let folder = input.structured.classification.folder
-        let noteResult = try writeNote(input: input, rootURL: rootURL, folder: folder)
+        let resolved = resolveWikiLinks(for: input)
+        let folder = resolved.structured.classification.folder
+        let noteResult = try writeNote(input: input, structured: resolved.structured, rootURL: rootURL, folder: folder)
         let metadataPath = VaultScanStore.metadataPath(for: input.processedImagePath ?? input.imagePath)
         let metadataURL = rootURL.appendingPathComponent(metadataPath)
         let metadata = ScanMetadata(
@@ -108,7 +117,7 @@ enum VaultWriter {
             notePath: noteResult.path,
             noteTitle: noteResult.title,
             transcript: input.transcript,
-            structured: input.structured,
+            structured: resolved.structured,
             transcriptJSON: input.transcriptJSON,
             structuredJSON: input.structuredJSON
         )
@@ -116,10 +125,22 @@ enum VaultWriter {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let metadataData = try encoder.encode(metadata)
         try writeAtomically(data: metadataData, to: metadataURL)
-        return VaultWriteResult(notePath: noteResult.path, noteTitle: noteResult.title, metadataPath: metadataPath)
+        let createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL)
+        return VaultWriteResult(
+            notePath: noteResult.path,
+            noteTitle: noteResult.title,
+            metadataPath: metadataPath,
+            noteMeta: resolved.structured.noteMeta,
+            createdEntities: createdEntities
+        )
     }
 
-    private static func writeNote(input: VaultWriterInput, rootURL: URL, folder: String) throws -> (path: String, title: String) {
+    private static func writeNote(
+        input: VaultWriterInput,
+        structured: StructurePayload,
+        rootURL: URL,
+        folder: String
+    ) throws -> (path: String, title: String) {
         let directoryURL = rootURL.appendingPathComponent(folder, isDirectory: true)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
 
@@ -128,23 +149,23 @@ enum VaultWriter {
             let fileName = "\(dateString).md"
             let notePath = "\(folder)/\(fileName)"
             let noteURL = rootURL.appendingPathComponent(notePath)
-            let entry = buildDailyEntry(input: input)
+            let entry = buildDailyEntry(input: input, structured: structured)
             let updated = try appendDailyEntry(existingAt: noteURL, dateString: dateString, entry: entry)
             try writeAtomically(text: updated, to: noteURL)
             return (notePath, dateString)
         }
 
-        let baseName = sanitizeFileName(input.structured.noteMeta.title)
+        let baseName = sanitizeFileName(structured.noteMeta.title)
         let fileName = uniqueFileName(baseName: baseName, in: directoryURL)
         let notePath = "\(folder)/\(fileName)"
         let noteURL = rootURL.appendingPathComponent(notePath)
-        let content = buildNoteContent(input: input)
+        let content = buildNoteContent(input: input, structured: structured)
         try writeAtomically(text: content, to: noteURL)
-        return (notePath, input.structured.noteMeta.title)
+        return (notePath, structured.noteMeta.title)
     }
 
-    private static func buildDailyEntry(input: VaultWriterInput) -> String {
-        let title = input.structured.noteMeta.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func buildDailyEntry(input: VaultWriterInput, structured: StructurePayload) -> String {
+        let title = structured.noteMeta.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let entryTitle = title.isEmpty ? "Scan Notes" : title
         let timestamp = timeFormatter.string(from: input.capturedAt)
         var entry = "## \(entryTitle)\n"
@@ -153,8 +174,8 @@ enum VaultWriter {
             entry += "Batch: \(batchId)\n"
         }
         entry += "Scan: \(input.scanId.uuidString)\n\n"
-        entry += normalizedMarkdown(input.structured.markdown)
-        if shouldAppendRawTranscript(to: input.structured.markdown) {
+        entry += normalizedMarkdown(structured.markdown)
+        if shouldAppendRawTranscript(to: structured.markdown) {
             entry += "\n\n### Raw transcription\n"
             entry += input.transcript.rawTranscript
         }
@@ -182,9 +203,9 @@ enum VaultWriter {
         return updated
     }
 
-    private static func buildNoteContent(input: VaultWriterInput) -> String {
-        var content = normalizedMarkdown(input.structured.markdown)
-        if shouldAppendRawTranscript(to: input.structured.markdown) {
+    private static func buildNoteContent(input: VaultWriterInput, structured: StructurePayload) -> String {
+        var content = normalizedMarkdown(structured.markdown)
+        if shouldAppendRawTranscript(to: structured.markdown) {
             content += "\n\n## Raw transcription\n"
             content += input.transcript.rawTranscript
         }
@@ -221,6 +242,171 @@ enum VaultWriter {
             index += 1
         }
         return candidate
+    }
+
+    private struct ResolvedNoteLinks {
+        let structured: StructurePayload
+        let linkTitles: [String]
+    }
+
+    private static func resolveWikiLinks(for input: VaultWriterInput) -> ResolvedNoteLinks {
+        let baseMarkdown = normalizedMarkdown(input.structured.markdown)
+        let extracted = extractWikiLinks(from: baseMarkdown, limit: 24)
+        let merged = mergeLinkTitles(primary: input.structured.noteMeta.links, secondary: extracted)
+        let updatedMarkdown = appendMissingLinks(to: baseMarkdown, links: merged)
+        let updatedLinks = merged.isEmpty ? nil : merged
+        let updatedNoteMeta = NoteMeta(
+            title: input.structured.noteMeta.title,
+            summary: input.structured.noteMeta.summary,
+            tags: input.structured.noteMeta.tags,
+            links: updatedLinks
+        )
+        let updatedStructured = StructurePayload(
+            markdown: updatedMarkdown,
+            noteMeta: updatedNoteMeta,
+            classification: input.structured.classification,
+            warnings: input.structured.warnings
+        )
+        return ResolvedNoteLinks(structured: updatedStructured, linkTitles: merged)
+    }
+
+    private static func mergeLinkTitles(primary: [String]?, secondary: [String]) -> [String] {
+        var results: [String] = []
+        var seen = Set<String>()
+        let allLinks = (primary ?? []) + secondary
+        for link in allLinks {
+            let title = resolvedLinkTitle(link)
+            let key = normalizedLinkKey(title)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            results.append(title)
+        }
+        return results
+    }
+
+    private static func appendMissingLinks(to markdown: String, links: [String]) -> String {
+        guard !links.isEmpty else { return markdown }
+        let existingKeys = Set(extractWikiLinks(from: markdown, limit: 40).map { normalizedLinkKey($0) })
+        let missing = links.filter { !existingKeys.contains(normalizedLinkKey($0)) }
+        guard !missing.isEmpty else { return markdown }
+        let linkList = missing.map { "- [[\($0)]]" }.joined(separator: "\n")
+        var updated = markdown
+        if !updated.hasSuffix("\n") {
+            updated += "\n"
+        }
+        updated += "\n## Links\n" + linkList
+        return updated
+    }
+
+    private static func extractWikiLinks(from text: String, limit: Int) -> [String] {
+        guard limit > 0 else { return [] }
+        var results: [String] = []
+        var searchRange = text.startIndex..<text.endIndex
+        while let open = text.range(of: "[[", range: searchRange) {
+            guard let close = text.range(of: "]]", range: open.upperBound..<text.endIndex) else {
+                break
+            }
+            let raw = String(text[open.upperBound..<close.lowerBound])
+            if !raw.isEmpty {
+                results.append(raw)
+                if results.count >= limit {
+                    break
+                }
+            }
+            searchRange = close.upperBound..<text.endIndex
+        }
+        return results
+    }
+
+    private static func resolvedLinkTitle(_ value: String) -> String {
+        var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("[[") && trimmed.hasSuffix("]]") {
+            trimmed = String(trimmed.dropFirst(2).dropLast(2))
+        }
+        if let pipeIndex = trimmed.firstIndex(of: "|") {
+            trimmed = String(trimmed[..<pipeIndex])
+        }
+        if let hashIndex = trimmed.firstIndex(of: "#") {
+            trimmed = String(trimmed[..<hashIndex])
+        }
+        trimmed = (trimmed as NSString).deletingPathExtension
+        trimmed = (trimmed as NSString).lastPathComponent
+        return trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizedLinkKey(_ value: String) -> String {
+        let resolved = resolvedLinkTitle(value)
+        guard !resolved.isEmpty else { return "" }
+        let normalized = resolved
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized
+    }
+
+    private static func ensureEntityPages(links: [String], rootURL: URL) throws -> [EntityPage] {
+        guard !links.isEmpty else { return [] }
+        let existingKeys = loadExistingLinkKeys(rootURL: rootURL)
+        var seenKeys = existingKeys
+        var created: [EntityPage] = []
+
+        let directoryURL = rootURL.appendingPathComponent(entityFolder, isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+
+        for link in links {
+            let title = resolvedLinkTitle(link)
+            let key = normalizedLinkKey(title)
+            guard !key.isEmpty, seenKeys.insert(key).inserted else { continue }
+            let baseName = sanitizeFileName(title)
+            guard !baseName.isEmpty else { continue }
+            let fileName = "\(baseName).md"
+            let targetURL = directoryURL.appendingPathComponent(fileName)
+            if fileManager.fileExists(atPath: targetURL.path) {
+                continue
+            }
+            let content = buildEntityPageContent(title: title)
+            try writeAtomically(text: content, to: targetURL)
+            let path = "\(entityFolder)/\(fileName)"
+            created.append(EntityPage(path: path, title: title))
+        }
+        return created
+    }
+
+    private static func loadExistingLinkKeys(rootURL: URL) -> Set<String> {
+        let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
+        guard let data = try? Data(contentsOf: indexURL),
+              let snapshot = try? JSONDecoder().decode(IndexSnapshot.self, from: data) else {
+            return []
+        }
+        var keys = Set<String>()
+        for entry in snapshot.notes {
+            let titleKey = normalizedLinkKey(entry.title)
+            if !titleKey.isEmpty {
+                keys.insert(titleKey)
+            }
+            let pathKey = normalizedLinkKey(titleFromPath(entry.path))
+            if !pathKey.isEmpty {
+                keys.insert(pathKey)
+            }
+        }
+        return keys
+    }
+
+    private static func titleFromPath(_ path: String) -> String {
+        let fileName = (path as NSString).lastPathComponent
+        let base = (fileName as NSString).deletingPathExtension
+        return base.isEmpty ? path : base
+    }
+
+    private static func buildEntityPageContent(title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = trimmed.isEmpty ? "Untitled" : trimmed
+        return """
+        # \(displayTitle)
+
+        ## Notes
+        - TODO: Add details.
+        """
     }
 
     private static func vaultRootURL() throws -> URL {
@@ -889,14 +1075,31 @@ final class ProcessingQueue {
                 context: context,
                 notePath: result.notePath,
                 noteTitle: result.noteTitle,
-                noteMeta: writerInput.structured.noteMeta
+                noteMeta: result.noteMeta
             )
             await VaultIndexStore.shared.updateAfterNoteWrite(
                 notePath: result.notePath,
                 noteTitle: result.noteTitle,
-                noteMeta: writerInput.structured.noteMeta,
+                noteMeta: result.noteMeta,
                 context: context
             )
+            if !result.createdEntities.isEmpty {
+                for entity in result.createdEntities {
+                    let entityMeta = NoteMeta(title: entity.title, summary: nil, tags: nil, links: nil)
+                    await upsertNoteEntity(
+                        context: context,
+                        notePath: entity.path,
+                        noteTitle: entity.title,
+                        noteMeta: entityMeta
+                    )
+                    await VaultIndexStore.shared.updateAfterNoteWrite(
+                        notePath: entity.path,
+                        noteTitle: entity.title,
+                        noteMeta: entityMeta,
+                        context: context
+                    )
+                }
+            }
             return true
         } catch {
             await markScanError(objectID: objectID, context: context)

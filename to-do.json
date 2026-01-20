@@ -469,7 +469,7 @@
         "T010",
         "T014"
       ],
-      "updated_at": "2026-01-20T17:53:00Z",
+      "updated_at": "2026-01-20T17:53:47Z",
       "files": [
         "MarginShot/ChatAgent.swift",
         "MarginShot/ProcessingPipeline.swift",
@@ -483,7 +483,7 @@
       "id": "T022",
       "title": "Add wiki-linking and entity page creation",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Detect entities/projects, create pages lazily, and insert wiki-links in notes.",
       "tags": [
         "linking",
@@ -492,6 +492,12 @@
       "depends_on": [
         "T010",
         "T011"
+      ],
+      "updated_at": "2026-01-20T18:02:33Z",
+      "files": [
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ]
     },
     {

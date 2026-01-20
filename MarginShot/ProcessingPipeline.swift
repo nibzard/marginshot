@@ -397,6 +397,8 @@ enum ProcessingPrompts {
         - markdown must be a clean note with sections when appropriate.
         - noteMeta.title must be present.
         - classification.folder must be one of the listed folders.
+        - Use [[Wiki Link]] syntax for entities or projects mentioned in markdown.
+        - List each unique wiki-link title (without brackets) in noteMeta.links.
         - Do not include markdown fences or extra keys.
         """
 
@@ -436,6 +438,8 @@ enum ProcessingPrompts {
         }
         Rules:
         - Keep meaning unchanged; only improve structure, links, and classification.
+        - Use [[Wiki Link]] syntax for entities or projects mentioned in markdown.
+        - List each unique wiki-link title (without brackets) in noteMeta.links.
         - Do not include markdown fences or extra keys.
         """
 
@@ -476,6 +480,8 @@ enum ProcessingPrompts {
         - markdown must be a clean note with sections when appropriate.
         - noteMeta.title must be present.
         - classification.folder must be one of the listed folders.
+        - Use [[Wiki Link]] syntax for entities or projects mentioned in markdown.
+        - List each unique wiki-link title (without brackets) in noteMeta.links.
         - Do not include markdown fences or extra keys.
         """
         prompt += "\n\nSystem rules:\n\(systemRules)"
