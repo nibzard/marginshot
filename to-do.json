@@ -23,17 +23,18 @@
         "Implement a swipe container between Capture and Chat",
         "Add a minimal header with mode label and sync status icon"
       ],
-      "updated_at": "2026-01-20T15:31:35+01:00",
+      "updated_at": "2026-01-20T14:32:03Z",
       "files": [
         "MarginShot.xcodeproj/project.pbxproj",
-        "MarginShot/MarginShotApp.swift",
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "MarginShot/Assets.xcassets/Contents.json",
         "MarginShot/ContentView.swift",
+        "MarginShot/Info.plist",
+        "MarginShot/MarginShotApp.swift",
         "MarginShot/Views/CaptureView.swift",
         "MarginShot/Views/ChatView.swift",
         "MarginShot/Views/HeaderView.swift",
-        "MarginShot/Info.plist",
-        "MarginShot/Assets.xcassets/Contents.json",
-        "MarginShot/Assets.xcassets/AppIcon.appiconset/Contents.json"
+        "to-do.json"
       ]
     },
     {
@@ -49,12 +50,12 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-20T14:35:20Z",
+      "updated_at": "2026-01-20T14:40:59Z",
       "files": [
-        "MarginShot/ContentView.swift",
-        "MarginShot/Views/OnboardingView.swift",
-        "MarginShot/Info.plist",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ContentView.swift",
+        "MarginShot/Info.plist",
+        "MarginShot/Views/OnboardingView.swift",
         "to-do.json"
       ]
     },
@@ -71,7 +72,7 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-20T14:44:23Z",
+      "updated_at": "2026-01-20T14:46:52Z",
       "files": [
         "MarginShot/ContentView.swift",
         "to-do.json"
@@ -81,7 +82,7 @@
       "id": "T004",
       "title": "Define the local data model and persistence layer",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Model Batch, Scan, Note, SyncState, Index, and Notebook entities using Core Data or SQLite with migrations.",
       "tags": [
         "data",
@@ -89,6 +90,14 @@
       ],
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-20T14:53:04Z",
+      "files": [
+        "MarginShot/PersistenceController.swift",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 import SwiftUI
 
@@ -148,4 +149,5 @@ enum VaultBootstrapError: Error {
 
 #Preview {
     ContentView()
+        .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
 }
