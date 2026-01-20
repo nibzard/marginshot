@@ -44,22 +44,6 @@ enum GitHubDefaults {
     static let lastSyncAtKey = "githubLastSyncAt"
 }
 
-enum OrganizationStyle: String, CaseIterable, Identifiable {
-    case simple
-    case johnnyDecimal
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .simple:
-            return "Simple Folders"
-        case .johnnyDecimal:
-            return "Johnny.Decimal"
-        }
-    }
-}
-
 extension ProcessingQualityMode {
     var title: String {
         switch self {

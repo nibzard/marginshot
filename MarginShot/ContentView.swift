@@ -74,24 +74,14 @@ struct ContentView: View {
 
 struct VaultBootstrapper {
     private static let vaultFolderName = "vault"
-    private static let vaultDirectories = [
-        "00_inbox",
-        "01_daily",
-        "10_projects",
-        "11_meetings",
-        "13_tasks",
-        "20_learning",
-        "_topics",
-        "_system",
-        "scans"
-    ]
 
     static func bootstrapIfNeeded() throws {
         let fileManager = FileManager.default
         let rootURL = try vaultRootURL()
         try createDirectoryIfNeeded(at: rootURL)
+        let style = OrganizationPreferences().style
 
-        for directory in vaultDirectories {
+        for directory in vaultDirectories(style: style) {
             let directoryURL = rootURL.appendingPathComponent(directory, isDirectory: true)
             try createDirectoryIfNeeded(at: directoryURL)
         }
@@ -107,7 +97,7 @@ struct VaultBootstrapper {
         )
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("STRUCTURE.txt"),
-            contents: defaultStructureText
+            contents: defaultStructureText(style: style)
         )
     }
 
@@ -139,18 +129,20 @@ struct VaultBootstrapper {
     }
     """
 
-    private static let defaultStructureText = """
-    vault/
-    00_inbox/
-    01_daily/
-    10_projects/
-    11_meetings/
-    13_tasks/
-    20_learning/
-    _topics/
-    _system/
-    scans/
-    """
+    private static func vaultDirectories(style: OrganizationStyle) -> [String] {
+        VaultFolder.folderNames(style: style) + ["_topics", "_system", "scans"]
+    }
+
+    private static func defaultStructureText(style: OrganizationStyle) -> String {
+        var lines: [String] = ["vault/"]
+        for folder in VaultFolder.folderNames(style: style) {
+            lines.append("\(folder)/")
+        }
+        lines.append("_topics/")
+        lines.append("_system/")
+        lines.append("scans/")
+        return lines.joined(separator: "\n") + "\n"
+    }
 }
 
 enum VaultBootstrapError: Error {

@@ -68,7 +68,11 @@ final class ChatAgent {
         }
 
         let systemRules = ProcessingContextLoader.load().systemRules
-        let systemInstruction = ChatPrompts.systemInstruction(systemRules: systemRules)
+        let organizationStyle = OrganizationPreferences().style
+        let systemInstruction = ChatPrompts.systemInstruction(
+            systemRules: systemRules,
+            organizationStyle: organizationStyle
+        )
         let prompt = ChatPrompts.userPrompt(query: trimmed, context: context)
 
         let response = try await client.generateText(
@@ -158,7 +162,11 @@ private struct ChatResponsePayload: Decodable {
 }
 
 private enum ChatPrompts {
-    static func systemInstruction(systemRules: String) -> String {
+    static func systemInstruction(
+        systemRules: String,
+        organizationStyle: OrganizationStyle
+    ) -> String {
+        let examplePath = "\(VaultFolder.daily.folderName(style: organizationStyle))/2026-01-20.md"
         var prompt = """
         You are the MarginShot chat assistant.
         Answer only using the provided context bundle.
@@ -182,7 +190,7 @@ private enum ChatPrompts {
           "warnings": ["string"]
         }
         usedSources must be a subset of the provided context bundle sources and must use exact path values.
-        fileOps must be an empty array when no changes are requested. Paths must be vault-relative (e.g. "01_daily/2026-01-20.md").
+        fileOps must be an empty array when no changes are requested. Paths must be vault-relative and should follow the current folder style (e.g. "\(examplePath)").
         fileOps content must be full file contents without diffs or Markdown fences. Do not write to _system or scans.
         """
 

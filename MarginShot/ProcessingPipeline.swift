@@ -18,6 +18,7 @@ struct ProcessingContextSnapshot {
     let systemRules: String
     let indexJSON: String?
     let structureText: String?
+    let organizationStyle: OrganizationStyle
 }
 
 enum ProcessingContextLoader {
@@ -27,11 +28,13 @@ enum ProcessingContextLoader {
         var structureText: String?
         indexJSON = readVaultText(path: "_system/INDEX.json")
         structureText = readVaultText(path: "_system/STRUCTURE.txt")
+        let organizationStyle = OrganizationPreferences().style
 
         return ProcessingContextSnapshot(
             systemRules: systemRules,
             indexJSON: indexJSON,
-            structureText: structureText
+            structureText: structureText,
+            organizationStyle: organizationStyle
         )
     }
 
@@ -107,15 +110,6 @@ struct Classification: Codable {
 }
 
 enum ScanProcessingPipeline {
-    private static let allowedClassificationFolders: Set<String> = [
-        "00_inbox",
-        "01_daily",
-        "10_projects",
-        "11_meetings",
-        "13_tasks",
-        "20_learning"
-    ]
-
     static func process(
         input: ScanProcessingInput,
         mode: ProcessingQualityMode,
@@ -137,7 +131,10 @@ enum ScanProcessingPipeline {
         client: GeminiClient,
         context: ProcessingContextSnapshot
     ) async throws -> ScanProcessingOutput {
-        let prompt = ProcessingPrompts.fastPrompt(systemRules: context.systemRules)
+        let prompt = ProcessingPrompts.fastPrompt(
+            systemRules: context.systemRules,
+            organizationStyle: context.organizationStyle
+        )
         let response = try await client.generateContent(
             contents: [
                 GeminiMessage(
@@ -266,7 +263,8 @@ enum ScanProcessingPipeline {
             transcript: transcript,
             systemRules: context.systemRules,
             indexJSON: context.indexJSON,
-            structureText: context.structureText
+            structureText: context.structureText,
+            organizationStyle: context.organizationStyle
         )
         let response = try await client.generateText(
             prompt: prompt,
@@ -285,7 +283,8 @@ enum ScanProcessingPipeline {
             structuredJSON: structuredJSON,
             systemRules: context.systemRules,
             indexJSON: context.indexJSON,
-            structureText: context.structureText
+            structureText: context.structureText,
+            organizationStyle: context.organizationStyle
         )
         let response = try await client.generateText(
             prompt: prompt,
@@ -311,7 +310,7 @@ enum ScanProcessingPipeline {
     }
 
     private static func validateClassification(_ classification: Classification) throws {
-        if !allowedClassificationFolders.contains(classification.folder) {
+        guard VaultFolder.fromClassification(classification.folder) != nil else {
             throw ProcessingPipelineError.invalidJSON
         }
     }
@@ -374,8 +373,10 @@ enum ProcessingPrompts {
         transcript: String,
         systemRules: String,
         indexJSON: String?,
-        structureText: String?
+        structureText: String?,
+        organizationStyle: OrganizationStyle
     ) -> String {
+        let folderOptions = VaultFolder.promptList(style: organizationStyle)
         var prompt = """
         You will structure a transcript into Markdown notes and classify it.
         Use the transcript below. Return JSON only with this schema:
@@ -388,7 +389,7 @@ enum ProcessingPrompts {
             "links": ["string"]
           },
           "classification": {
-            "folder": "00_inbox|01_daily|10_projects|11_meetings|13_tasks|20_learning",
+            "folder": "\(folderOptions)",
             "reason": "string"
           },
           "warnings": ["string"]
@@ -417,8 +418,10 @@ enum ProcessingPrompts {
         structuredJSON: String,
         systemRules: String,
         indexJSON: String?,
-        structureText: String?
+        structureText: String?,
+        organizationStyle: OrganizationStyle
     ) -> String {
+        let folderOptions = VaultFolder.promptList(style: organizationStyle)
         var prompt = """
         You will refine a structured note using system rules and the vault context.
         Return JSON only with this schema:
@@ -431,7 +434,7 @@ enum ProcessingPrompts {
             "links": ["string"]
           },
           "classification": {
-            "folder": "00_inbox|01_daily|10_projects|11_meetings|13_tasks|20_learning",
+            "folder": "\(folderOptions)",
             "reason": "string"
           },
           "warnings": ["string"]
@@ -454,7 +457,8 @@ enum ProcessingPrompts {
         return prompt
     }
 
-    static func fastPrompt(systemRules: String) -> String {
+    static func fastPrompt(systemRules: String, organizationStyle: OrganizationStyle) -> String {
+        let folderOptions = VaultFolder.promptList(style: organizationStyle)
         var prompt = """
         You are transcribing and structuring a notebook page image in one pass.
         Return JSON only with this schema:
@@ -470,7 +474,7 @@ enum ProcessingPrompts {
             "links": ["string"]
           },
           "classification": {
-            "folder": "00_inbox|01_daily|10_projects|11_meetings|13_tasks|20_learning",
+            "folder": "\(folderOptions)",
             "reason": "string"
           },
           "warnings": ["string"]

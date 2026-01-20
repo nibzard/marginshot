@@ -81,8 +81,6 @@ enum VaultWriterError: Error {
 
 enum VaultWriter {
     private static let fileManager = FileManager.default
-    private static let dailyFolder = "01_daily"
-    private static let entityFolder = "10_projects"
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -104,8 +102,16 @@ enum VaultWriter {
     static func apply(input: VaultWriterInput) throws -> VaultWriteResult {
         let rootURL = try vaultRootURL()
         let resolved = resolveWikiLinks(for: input)
-        let folder = resolved.structured.classification.folder
-        let noteResult = try writeNote(input: input, structured: resolved.structured, rootURL: rootURL, folder: folder)
+        let style = OrganizationPreferences().style
+        let normalizedStructured = try normalizeClassification(resolved.structured, style: style)
+        let folder = normalizedStructured.classification.folder
+        let noteResult = try writeNote(
+            input: input,
+            structured: normalizedStructured,
+            rootURL: rootURL,
+            folder: folder,
+            style: style
+        )
         let metadataPath = VaultScanStore.metadataPath(for: input.processedImagePath ?? input.imagePath)
         let metadataURL = rootURL.appendingPathComponent(metadataPath)
         let metadata = ScanMetadata(
@@ -117,7 +123,7 @@ enum VaultWriter {
             notePath: noteResult.path,
             noteTitle: noteResult.title,
             transcript: input.transcript,
-            structured: resolved.structured,
+            structured: normalizedStructured,
             transcriptJSON: input.transcriptJSON,
             structuredJSON: input.structuredJSON
         )
@@ -125,12 +131,12 @@ enum VaultWriter {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let metadataData = try encoder.encode(metadata)
         try writeAtomically(data: metadataData, to: metadataURL)
-        let createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL)
+        let createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL, style: style)
         return VaultWriteResult(
             notePath: noteResult.path,
             noteTitle: noteResult.title,
             metadataPath: metadataPath,
-            noteMeta: resolved.structured.noteMeta,
+            noteMeta: normalizedStructured.noteMeta,
             createdEntities: createdEntities
         )
     }
@@ -139,12 +145,13 @@ enum VaultWriter {
         input: VaultWriterInput,
         structured: StructurePayload,
         rootURL: URL,
-        folder: String
+        folder: String,
+        style: OrganizationStyle
     ) throws -> (path: String, title: String) {
         let directoryURL = rootURL.appendingPathComponent(folder, isDirectory: true)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
 
-        if folder == dailyFolder {
+        if folder == dailyFolderName(for: style) {
             let dateString = dateFormatter.string(from: input.capturedAt)
             let fileName = "\(dateString).md"
             let notePath = "\(folder)/\(fileName)"
@@ -270,6 +277,31 @@ enum VaultWriter {
         return ResolvedNoteLinks(structured: updatedStructured, linkTitles: merged)
     }
 
+    private static func normalizeClassification(
+        _ structured: StructurePayload,
+        style: OrganizationStyle
+    ) throws -> StructurePayload {
+        guard let normalizedFolder = VaultFolder.resolvedFolderName(
+            from: structured.classification.folder,
+            style: style
+        ) else {
+            throw VaultWriterError.invalidPayload
+        }
+        if normalizedFolder == structured.classification.folder {
+            return structured
+        }
+        let updatedClassification = Classification(
+            folder: normalizedFolder,
+            reason: structured.classification.reason
+        )
+        return StructurePayload(
+            markdown: structured.markdown,
+            noteMeta: structured.noteMeta,
+            classification: updatedClassification,
+            warnings: structured.warnings
+        )
+    }
+
     private static func mergeLinkTitles(primary: [String]?, secondary: [String]) -> [String] {
         var results: [String] = []
         var seen = Set<String>()
@@ -344,12 +376,17 @@ enum VaultWriter {
         return normalized
     }
 
-    private static func ensureEntityPages(links: [String], rootURL: URL) throws -> [EntityPage] {
+    private static func ensureEntityPages(
+        links: [String],
+        rootURL: URL,
+        style: OrganizationStyle
+    ) throws -> [EntityPage] {
         guard !links.isEmpty else { return [] }
         let existingKeys = loadExistingLinkKeys(rootURL: rootURL)
         var seenKeys = existingKeys
         var created: [EntityPage] = []
 
+        let entityFolder = entityFolderName(for: style)
         let directoryURL = rootURL.appendingPathComponent(entityFolder, isDirectory: true)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
 
@@ -409,6 +446,14 @@ enum VaultWriter {
         """
     }
 
+    private static func dailyFolderName(for style: OrganizationStyle) -> String {
+        VaultFolder.daily.folderName(style: style)
+    }
+
+    private static func entityFolderName(for style: OrganizationStyle) -> String {
+        VaultFolder.projects.folderName(style: style)
+    }
+
     private static func vaultRootURL() throws -> URL {
         guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw VaultWriterError.documentsDirectoryUnavailable
@@ -443,9 +488,16 @@ enum TaskConsolidator {
         let tasks: [String]
     }
 
-    private static let tasksFolder = "13_tasks"
     private static let tasksFileName = "Tasks.md"
-    private static let skipRoots: Set<String> = ["_system", "scans", tasksFolder]
+    private static var skipRoots: Set<String> {
+        Set([
+            "_system",
+            "scans",
+            "_topics",
+            VaultFolder.tasks.simpleName,
+            VaultFolder.tasks.johnnyDecimalName
+        ])
+    }
     private static let fileManager = FileManager.default
     private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -470,7 +522,7 @@ enum TaskConsolidator {
             }
             let sortedSources = sources.sorted { $0.path < $1.path }
             let content = buildTasksMarkdown(sources: sortedSources, updatedAt: Date())
-            let tasksPath = "\(tasksFolder)/\(tasksFileName)"
+            let tasksPath = "\(tasksFolderName())/\(tasksFileName)"
             let tasksURL = rootURL.appendingPathComponent(tasksPath)
             try writeAtomically(text: content, to: tasksURL)
             let noteMeta = NoteMeta(
@@ -488,6 +540,10 @@ enum TaskConsolidator {
         } catch {
             print("Task consolidation failed: \(error)")
         }
+    }
+
+    private static func tasksFolderName() -> String {
+        VaultFolder.tasks.folderName(style: OrganizationPreferences().style)
     }
 
     private static func loadNoteEntries(rootURL: URL) -> [NoteEntry] {
@@ -818,7 +874,8 @@ enum VaultApplyService {
         guard allowedExtensions.contains(ext) else {
             throw VaultApplyError.invalidOperation("Only .md files can be modified.")
         }
-        return trimmed
+        let style = OrganizationPreferences().style
+        return VaultFolder.normalizeTopLevelPath(trimmed, style: style)
     }
 
     private static func ensureWithinVault(_ targetURL: URL, _ rootURL: URL) throws {
@@ -864,6 +921,7 @@ enum VaultApplyService {
                 )
             }
         }
+        await TopicPageStore.refreshIfEnabled(context: nil)
     }
 
     private static func resolvedNoteMeta(for operation: VaultFileOperation, content: String) -> NoteMeta {
@@ -1293,6 +1351,7 @@ final class ProcessingQueue {
                 }
             }
             await TaskConsolidator.refreshIfEnabled(context: context)
+            await TopicPageStore.refreshIfEnabled(context: context)
             return true
         } catch {
             await markScanError(objectID: objectID, context: context)

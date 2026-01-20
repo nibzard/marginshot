@@ -514,7 +514,7 @@
         "T010",
         "T016"
       ],
-      "updated_at": "2026-01-20T18:53:36Z",
+      "updated_at": "2026-01-20T18:54:48Z",
       "files": [
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
@@ -524,7 +524,7 @@
       "id": "T024",
       "title": "Add topic pages and optional Johnny.Decimal mode",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Generate _topics pages and support strict numbering for folder names when enabled.",
       "tags": [
         "topics",
@@ -533,6 +533,18 @@
       "depends_on": [
         "T003",
         "T016"
+      ],
+      "updated_at": "2026-01-20T19:13:04Z",
+      "files": [
+        "MarginShot/OrganizationSettings.swift",
+        "MarginShot/TopicPageStore.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/ChatAgent.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {
