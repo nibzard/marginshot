@@ -62,7 +62,7 @@
       "id": "T003",
       "title": "Bootstrap the vault filesystem and base structure",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Create the default vault folder tree, SYSTEM.md, INDEX.json, and STRUCTURE.txt with atomic file writes.",
       "tags": [
         "storage",
@@ -70,6 +70,11 @@
       ],
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-20T14:44:23Z",
+      "files": [
+        "MarginShot/ContentView.swift",
+        "to-do.json"
       ]
     },
     {
