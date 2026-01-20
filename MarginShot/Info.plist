@@ -4,10 +4,16 @@
 <dict>
     <key>CFBundleName</key>
     <string>MarginShot</string>
-    <key>CFBundleDisplayName</key>
-    <string>MarginShot</string>
-    <key>NSCameraUsageDescription</key>
-    <string>Use the camera to scan notebook pages.</string>
+	<key>CFBundleDisplayName</key>
+	<string>MarginShot</string>
+	<key>GeminiAPIKey</key>
+	<string></string>
+	<key>GeminiModelName</key>
+	<string>gemini-1.5-flash</string>
+	<key>GeminiBaseURL</key>
+	<string>https://generativelanguage.googleapis.com</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Use the camera to scan notebook pages.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow photo access to import existing pages.</string>
     <key>BGTaskSchedulerPermittedIdentifiers</key>

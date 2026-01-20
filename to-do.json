@@ -155,14 +155,14 @@
         "T004",
         "T006"
       ],
-      "updated_at": "2026-01-20T15:26:18Z",
+      "updated_at": "2026-01-20T15:28:12Z",
       "files": [
-        "MarginShot/ProcessingQueue.swift",
-        "MarginShot/ContentView.swift",
-        "MarginShot/MarginShotApp.swift",
-        "MarginShot/Views/CaptureView.swift",
-        "MarginShot/Info.plist",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ContentView.swift",
+        "MarginShot/Info.plist",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/CaptureView.swift",
         "to-do.json"
       ]
     },
@@ -170,7 +170,7 @@
       "id": "T008",
       "title": "Integrate the Gemini LLM client",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Implement network client, auth configuration, retries/backoff, and response parsing.",
       "tags": [
         "llm",
@@ -178,6 +178,13 @@
       ],
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-20T15:32:17Z",
+      "files": [
+        "MarginShot/GeminiClient.swift",
+        "MarginShot/Info.plist",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {
