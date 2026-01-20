@@ -2,14 +2,30 @@ import XCTest
 @testable import MarginShot
 
 final class VaultSyncIntegrationTests: XCTestCase {
+    private let defaults = UserDefaults.standard
+    private let testDefaults: [String: Any] = [
+        "organizationStyle": "simple",
+        "organizationLinkingEnabled": true,
+        "organizationTopicPagesEnabled": false,
+        "privacyLocalEncryptionEnabled": false
+    ]
+
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // Set known defaults for test independence
+        for (key, value) in testDefaults {
+            defaults.set(value, forKey: key)
+        }
         try TestVaultHelper.resetVault()
         try VaultBootstrapper.bootstrapIfNeeded()
     }
 
     override func tearDownWithError() throws {
         try TestVaultHelper.resetVault()
+        // Clear test defaults
+        for key in testDefaults.keys {
+            defaults.removeObject(forKey: key)
+        }
         try super.tearDownWithError()
     }
 
@@ -54,7 +70,7 @@ final class VaultSyncIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: metadataURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: entityURL.path))
 
-        let noteContents = try String(contentsOf: noteURL, encoding: .utf8)
+        let noteContents = try VaultFileStore.readText(from: noteURL)
         XCTAssertTrue(noteContents.contains("Raw transcription"))
     }
 
@@ -72,7 +88,7 @@ final class VaultSyncIntegrationTests: XCTestCase {
         let noteURL = rootURL.appendingPathComponent("01_daily/qa-note.md")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: noteURL.path))
-        XCTAssertEqual(try String(contentsOf: noteURL, encoding: .utf8), content)
+        XCTAssertEqual(try VaultFileStore.readText(from: noteURL), content)
         XCTAssertEqual(summary.createdOrUpdated, ["01_daily/qa-note.md"])
         XCTAssertTrue(summary.deleted.isEmpty)
     }
@@ -90,7 +106,7 @@ final class VaultSyncIntegrationTests: XCTestCase {
 
         let copiedURL = destinationURL.appendingPathComponent("01_daily/sync-test.md")
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedURL.path))
-        XCTAssertEqual(try String(contentsOf: copiedURL, encoding: .utf8), "sync")
+        XCTAssertEqual(try VaultFileStore.readText(from: copiedURL), "sync")
     }
 }
 

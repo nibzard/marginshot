@@ -1030,13 +1030,13 @@
         "MarginShot/Views/CaptureView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T23:52:14Z"
+      "updated_at": "2026-01-20T23:52:55Z"
     },
     {
       "id": "T050",
       "title": "Make VaultSyncIntegrationTests independent of user defaults",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Set organization style/encryption defaults in test setup and read vault files via VaultFileStore (or force encryption off) so tests do not fail when preferences change.",
       "tags": [
         "tests",
@@ -1044,7 +1044,8 @@
       ],
       "files": [
         "MarginShotTests/VaultSyncIntegrationTests.swift"
-      ]
+      ],
+      "updated_at": "2026-01-20T23:54:55Z"
     }
   ]
 }
