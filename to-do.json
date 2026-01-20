@@ -135,7 +135,7 @@
         "T004",
         "T005"
       ],
-      "updated_at": "2026-01-20T15:17:24Z",
+      "updated_at": "2026-01-20T15:18:44Z",
       "files": [
         "MarginShot/Views/CaptureView.swift",
         "to-do.json"
@@ -145,7 +145,7 @@
       "id": "T007",
       "title": "Implement processing queue and background tasks",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Queue processing per notebook, schedule BGTaskScheduler jobs, and honor Wi-Fi/charging constraints.",
       "tags": [
         "processing",
@@ -154,6 +154,16 @@
       "depends_on": [
         "T004",
         "T006"
+      ],
+      "updated_at": "2026-01-20T15:26:18Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/Info.plist",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {

@@ -22,6 +22,7 @@ struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedMode: AppMode = .capture
     @State private var syncState: SyncState = .idle
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -45,8 +46,20 @@ struct ContentView: View {
             guard hasCompletedOnboarding else { return }
             do {
                 try VaultBootstrapper.bootstrapIfNeeded()
+                ProcessingQueue.shared.enqueuePendingProcessing()
             } catch {
                 print("Vault bootstrap failed: \(error)")
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard hasCompletedOnboarding else { return }
+            switch phase {
+            case .active:
+                ProcessingQueue.shared.enqueuePendingProcessing()
+            case .background:
+                ProcessingQueue.shared.scheduleBackgroundProcessing()
+            default:
+                break
             }
         }
     }

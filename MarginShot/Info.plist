@@ -10,6 +10,14 @@
     <string>Use the camera to scan notebook pages.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow photo access to import existing pages.</string>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.example.MarginShot.processing</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>processing</string>
+    </array>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>

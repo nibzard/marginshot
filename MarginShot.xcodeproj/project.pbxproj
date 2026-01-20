@@ -15,6 +15,7 @@
 		A1B2C3D4E5F6000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000D /* Assets.xcassets */; };
 		A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000F /* OnboardingView.swift */; };
 		7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE316DD78EC46B8A2164601 /* PersistenceController.swift */; };
+		A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 		A1B2C3D4E5F600000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000F /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		0DE316DD78EC46B8A2164601 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingQueue.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +65,7 @@
 				A1B2C3D4E5F6000000000008 /* MarginShotApp.swift */,
 				A1B2C3D4E5F6000000000009 /* ContentView.swift */,
 				0DE316DD78EC46B8A2164601 /* PersistenceController.swift */,
+				A1B2C3D4E5F6000000000017 /* ProcessingQueue.swift */,
 				A1B2C3D4E5F6000000000004 /* Views */,
 				A1B2C3D4E5F600000000000D /* Assets.xcassets */,
 				A1B2C3D4E5F600000000000E /* Info.plist */,
@@ -157,6 +160,7 @@
 				A1B2C3D4E5F6000000000014 /* HeaderView.swift in Sources */,
 				A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */,
 				7C57D5E4B88C479982B3D586 /* PersistenceController.swift in Sources */,
+				A1B2C3D4E5F6000000000018 /* ProcessingQueue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

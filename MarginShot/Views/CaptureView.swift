@@ -628,6 +628,7 @@ final class CaptureViewModel: ObservableObject {
         do {
             try context.save()
             statusText = "Batch queued"
+            ProcessingQueue.shared.enqueuePendingProcessing()
             resetBatchSession()
         } catch {
             statusText = "Batch update failed"

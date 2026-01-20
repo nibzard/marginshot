@@ -5,6 +5,10 @@ import SwiftUI
 struct MarginShotApp: App {
     private let persistenceController = PersistenceController.shared
 
+    init() {
+        ProcessingQueue.shared.registerBackgroundTasks()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
