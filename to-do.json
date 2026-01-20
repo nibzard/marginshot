@@ -574,7 +574,7 @@
       "id": "T026",
       "title": "Add advanced review and diff mode",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Show file list and lightweight diffs before apply-to-vault when advanced review is enabled.",
       "tags": [
         "review",
@@ -583,6 +583,12 @@
       "depends_on": [
         "T021",
         "T016"
+      ],
+      "updated_at": "2026-01-20T19:20:59Z",
+      "files": [
+        "MarginShot/Views/ApplyReviewView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
       ]
     },
     {

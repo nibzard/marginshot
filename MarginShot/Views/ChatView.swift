@@ -4,6 +4,8 @@ struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
     @Binding var preferredBatchId: UUID?
     @State private var expandedSources: Set<UUID> = []
+    @State private var reviewMessage: ChatMessage?
+    @AppStorage("advancedReviewBeforeApply") private var advancedReviewBeforeApply = false
     private let bottomAnchor = "chat-bottom"
 
     init(preferredBatchId: Binding<UUID?> = .constant(nil), viewModel: ChatViewModel = ChatViewModel()) {
@@ -24,6 +26,11 @@ struct ChatView: View {
         }
         .onChange(of: preferredBatchId) { newValue in
             viewModel.preferredBatchId = newValue
+        }
+        .sheet(item: $reviewMessage) { message in
+            ApplyReviewSheet(message: message) {
+                viewModel.applyFileOps(for: message)
+            }
         }
     }
 
@@ -49,7 +56,8 @@ struct ChatView: View {
                             MessageRow(
                                 message: message,
                                 isSourcesExpanded: sourcesBinding(for: message),
-                                onApply: message.fileOps.isEmpty ? nil : { viewModel.applyFileOps(for: message) },
+                                reviewEnabled: advancedReviewBeforeApply,
+                                onApply: message.fileOps.isEmpty ? nil : { handleApply(for: message) },
                                 isApplying: isApplying,
                                 isApplied: isApplied
                             )
@@ -150,6 +158,14 @@ struct ChatView: View {
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         withAnimation(.easeOut(duration: 0.2)) {
             proxy.scrollTo(bottomAnchor, anchor: .bottom)
+        }
+    }
+
+    private func handleApply(for message: ChatMessage) {
+        if advancedReviewBeforeApply {
+            reviewMessage = message
+        } else {
+            viewModel.applyFileOps(for: message)
         }
     }
 }
@@ -321,6 +337,7 @@ final class ChatViewModel: ObservableObject {
 struct MessageRow: View {
     let message: ChatMessage
     @Binding var isSourcesExpanded: Bool
+    let reviewEnabled: Bool
     let onApply: (() -> Void)?
     let isApplying: Bool
     let isApplied: Bool
@@ -337,6 +354,7 @@ struct MessageRow: View {
                     if let onApply, !message.fileOps.isEmpty {
                         ApplyToVaultCard(
                             fileCount: message.fileOps.count,
+                            reviewEnabled: reviewEnabled,
                             isApplying: isApplying,
                             isApplied: isApplied,
                             action: onApply
@@ -404,6 +422,7 @@ struct SourcesDisclosure: View {
 
 struct ApplyToVaultCard: View {
     let fileCount: Int
+    let reviewEnabled: Bool
     let isApplying: Bool
     let isApplied: Bool
     let action: () -> Void
@@ -418,6 +437,9 @@ struct ApplyToVaultCard: View {
         }
         if isApplying {
             return "Applying..."
+        }
+        if reviewEnabled {
+            return "Review changes"
         }
         return "Apply to vault"
     }
