@@ -91,12 +91,12 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-20T14:53:04Z",
+      "updated_at": "2026-01-20T14:53:41Z",
       "files": [
-        "MarginShot/PersistenceController.swift",
-        "MarginShot/MarginShotApp.swift",
-        "MarginShot/ContentView.swift",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ContentView.swift",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShot/PersistenceController.swift",
         "to-do.json"
       ]
     },
@@ -104,7 +104,7 @@
       "id": "T005",
       "title": "Build the capture camera and scanning pipeline",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Live camera preview with document detection, auto-crop, deskew, enhancement, and local image storage.",
       "tags": [
         "capture",
@@ -113,6 +113,11 @@
       "depends_on": [
         "T001",
         "T004"
+      ],
+      "updated_at": "2026-01-20T15:04:00Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
       ]
     },
     {
