@@ -12,6 +12,12 @@ struct CaptureView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = CaptureViewModel()
     @State private var hasBoundContext = false
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \ScanEntity.createdAt, ascending: false)],
+        predicate: NSPredicate(format: "status != %@", ScanStatus.filed.rawValue)
+    )
+    private var inboxScans: FetchedResults<ScanEntity>
+    @State private var isInboxPresented = false
 
     var body: some View {
         ZStack {
@@ -29,7 +35,7 @@ struct CaptureView: View {
             }
 
             VStack {
-                statusPill
+                topBar
                 Spacer()
                 captureControls
             }
@@ -50,6 +56,17 @@ struct CaptureView: View {
         .onChange(of: scenePhase) { phase in
             viewModel.handleScenePhase(phase)
         }
+        .sheet(isPresented: $isInboxPresented) {
+            InboxSheet(viewModel: viewModel)
+        }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            statusPill
+            Spacer()
+            inboxButton
+        }
     }
 
     private var statusPill: some View {
@@ -66,6 +83,25 @@ struct CaptureView: View {
         .background(.ultraThinMaterial, in: Capsule())
     }
 
+    private var inboxButton: some View {
+        Button {
+            isInboxPresented = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "tray.full")
+                Text("Inbox: \(inboxScans.count)")
+            }
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.45), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Inbox \(inboxScans.count)")
+    }
+
     private var captureControls: some View {
         VStack(spacing: 16) {
             Button(action: viewModel.captureScan) {
@@ -80,9 +116,19 @@ struct CaptureView: View {
             }
             .disabled(!viewModel.canCapture)
 
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 Text("Batch: On")
                 Text("Scans: \(viewModel.scanCount)")
+                if viewModel.scanCount > 0 {
+                    Button("Finish") {
+                        viewModel.finishBatch()
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.2), in: Capsule())
+                    .disabled(viewModel.isProcessing)
+                }
             }
             .font(.caption)
             .foregroundColor(.white)
@@ -138,6 +184,111 @@ struct ProcessingOverlay: View {
                 .padding(16)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
+    }
+}
+
+struct InboxSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \BatchEntity.createdAt, ascending: false)]
+    )
+    private var batches: FetchedResults<BatchEntity>
+
+    let viewModel: CaptureViewModel
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if batchSections.isEmpty {
+                    Text("Inbox is clear.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(batchSections, id: \.batch.objectID) { section in
+                        Section {
+                            ForEach(section.scans, id: \.objectID) { scan in
+                                InboxScanRow(scan: scan) {
+                                    viewModel.retryScan(scan)
+                                }
+                            }
+                        } header: {
+                            InboxBatchHeader(batch: section.batch, scanCount: section.scans.count)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Inbox")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var batchSections: [(batch: BatchEntity, scans: [ScanEntity])] {
+        batches.compactMap { batch in
+            let scans = scansForBatch(batch)
+            return scans.isEmpty ? nil : (batch: batch, scans: scans)
+        }
+    }
+
+    private func scansForBatch(_ batch: BatchEntity) -> [ScanEntity] {
+        let scans = batch.scans.filter { $0.status != ScanStatus.filed.rawValue }
+        return scans.sorted {
+            let leftPage = $0.pageNumber?.intValue ?? 0
+            let rightPage = $1.pageNumber?.intValue ?? 0
+            if leftPage == rightPage {
+                return $0.createdAt < $1.createdAt
+            }
+            return leftPage < rightPage
+        }
+    }
+}
+
+struct InboxBatchHeader: View {
+    let batch: BatchEntity
+    let scanCount: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Batch \(batch.shortID)")
+                .font(.subheadline)
+            Spacer()
+            Text(batch.statusLabel)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text("\(scanCount) scans")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+struct InboxScanRow: View {
+    let scan: ScanEntity
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(scan.pageLabel)
+                    .font(.subheadline)
+                Text(scan.statusLabel)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            if scan.statusEnum == .error {
+                Button("Retry") {
+                    onRetry()
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -377,24 +528,43 @@ final class CaptureViewModel: ObservableObject {
             let nextIndex = pageIndex + 1
             let batchId = batchId
             Task.detached(priority: .userInitiated) { [weak self] in
+                var rawPath: String?
                 do {
-                    let processed = try DocumentProcessingPipeline.process(imageData: data)
                     let stored = try VaultScanStore.saveScan(
-                        rawData: processed.rawData,
-                        processedData: processed.processedData,
+                        rawData: data,
+                        processedData: nil,
                         batchId: batchId,
                         pageIndex: nextIndex
                     )
+                    rawPath = stored.rawPath
                     await MainActor.run {
                         guard let self else { return }
                         self.pageIndex = nextIndex
                         self.scanCount = nextIndex
-                        self.persistScanIfPossible(stored, pageIndex: nextIndex)
+                        self.persistScanIfPossible(stored, pageIndex: nextIndex, status: .preprocessing)
+                    }
+
+                    let processed = try DocumentProcessingPipeline.process(imageData: data)
+                    let processedPath = try VaultScanStore.saveProcessedScan(
+                        processedData: processed.processedData,
+                        rawPath: stored.rawPath
+                    )
+
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.updateScanStatus(
+                            forRawPath: stored.rawPath,
+                            status: .captured,
+                            processedPath: processedPath
+                        )
                         self.statusText = "Saved scan \(nextIndex)"
                         self.isProcessing = false
                     }
                 } catch {
                     await MainActor.run {
+                        if let rawPath {
+                            self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
+                        }
                         self?.statusText = "Processing failed"
                         self?.isProcessing = false
                     }
@@ -406,14 +576,14 @@ final class CaptureViewModel: ObservableObject {
         }
     }
 
-    private func persistScanIfPossible(_ stored: StoredScan, pageIndex: Int) {
+    private func persistScanIfPossible(_ stored: StoredScan, pageIndex: Int, status: ScanStatus) {
         guard let context else { return }
         do {
             let batch = try fetchOrCreateBatch(in: context)
             let scan = ScanEntity(context: context)
             scan.id = UUID()
             scan.createdAt = Date()
-            scan.status = ScanStatus.captured.rawValue
+            scan.status = status.rawValue
             scan.imagePath = stored.rawPath
             scan.processedImagePath = stored.processedPath
             scan.pageNumber = NSNumber(value: pageIndex)
@@ -422,6 +592,98 @@ final class CaptureViewModel: ObservableObject {
         } catch {
             statusText = "Saved scan, metadata failed"
         }
+    }
+
+    private func updateScanStatus(forRawPath rawPath: String, status: ScanStatus, processedPath: String?) {
+        guard let context else { return }
+        let request = ScanEntity.fetchRequest()
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "imagePath == %@", rawPath)
+        do {
+            guard let scan = try context.fetch(request).first else { return }
+            scan.status = status.rawValue
+            if let processedPath {
+                scan.processedImagePath = processedPath
+            } else if status == .error {
+                scan.processedImagePath = nil
+            }
+            try context.save()
+        } catch {
+            statusText = "Scan update failed"
+        }
+    }
+
+    func finishBatch() {
+        guard let context else { return }
+        guard let objectID = currentBatchObjectID,
+              let batch = try? context.existingObject(with: objectID) as? BatchEntity else {
+            resetBatchSession()
+            statusText = "Batch reset"
+            return
+        }
+
+        batch.status = BatchStatus.queued.rawValue
+        batch.updatedAt = Date()
+
+        do {
+            try context.save()
+            statusText = "Batch queued"
+            resetBatchSession()
+        } catch {
+            statusText = "Batch update failed"
+        }
+    }
+
+    func retryScan(_ scan: ScanEntity) {
+        guard !isProcessing else { return }
+        guard let context else { return }
+
+        let rawPath = scan.imagePath
+        scan.status = ScanStatus.preprocessing.rawValue
+        statusText = "Retrying scan..."
+        isProcessing = true
+
+        do {
+            try context.save()
+        } catch {
+            statusText = "Retry failed"
+            isProcessing = false
+            return
+        }
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let rawURL = try VaultScanStore.url(for: rawPath)
+                let rawData = try Data(contentsOf: rawURL)
+                let processed = try DocumentProcessingPipeline.process(imageData: rawData)
+                let processedPath = try VaultScanStore.saveProcessedScan(
+                    processedData: processed.processedData,
+                    rawPath: rawPath
+                )
+                await MainActor.run {
+                    self?.updateScanStatus(
+                        forRawPath: rawPath,
+                        status: .captured,
+                        processedPath: processedPath
+                    )
+                    self?.statusText = "Retry complete"
+                    self?.isProcessing = false
+                }
+            } catch {
+                await MainActor.run {
+                    self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
+                    self?.statusText = "Retry failed"
+                    self?.isProcessing = false
+                }
+            }
+        }
+    }
+
+    private func resetBatchSession() {
+        batchId = UUID().uuidString
+        pageIndex = 0
+        scanCount = 0
+        currentBatchObjectID = nil
     }
 
     private func fetchOrCreateBatch(in context: NSManagedObjectContext) throws -> BatchEntity {
@@ -711,7 +973,7 @@ enum DocumentDetector {
 
 struct StoredScan {
     let rawPath: String
-    let processedPath: String
+    let processedPath: String?
 }
 
 enum VaultScanStore {
@@ -724,7 +986,7 @@ enum VaultScanStore {
 
     static func saveScan(
         rawData: Data,
-        processedData: Data,
+        processedData: Data?,
         batchId: String,
         pageIndex: Int
     ) throws -> StoredScan {
@@ -741,11 +1003,43 @@ enum VaultScanStore {
         let processedURL = directoryURL.appendingPathComponent(processedFileName)
 
         try rawData.write(to: rawURL, options: .atomic)
-        try processedData.write(to: processedURL, options: .atomic)
 
         let rawPath = "\(relativeDirectory)/\(rawFileName)"
-        let processedPath = "\(relativeDirectory)/\(processedFileName)"
+        var processedPath: String?
+        if let processedData {
+            try processedData.write(to: processedURL, options: .atomic)
+            processedPath = "\(relativeDirectory)/\(processedFileName)"
+        }
+
         return StoredScan(rawPath: rawPath, processedPath: processedPath)
+    }
+
+    static func saveProcessedScan(processedData: Data, rawPath: String) throws -> String {
+        let processedPath = processedPath(from: rawPath)
+        let processedURL = try url(for: processedPath)
+        try processedData.write(to: processedURL, options: .atomic)
+        return processedPath
+    }
+
+    static func url(for relativePath: String) throws -> URL {
+        try vaultRootURL().appendingPathComponent(relativePath)
+    }
+
+    private static func processedPath(from rawPath: String) -> String {
+        let rawNSString = rawPath as NSString
+        let basePath = rawNSString.deletingPathExtension
+        let ext = rawNSString.pathExtension
+        let trimmedBase: String
+        if basePath.hasSuffix("-raw") {
+            trimmedBase = String(basePath.dropLast(4))
+        } else {
+            trimmedBase = basePath + "-processed"
+        }
+
+        if ext.isEmpty {
+            return trimmedBase
+        }
+        return "\(trimmedBase).\(ext)"
     }
 
     private static func vaultRootURL() throws -> URL {
@@ -759,6 +1053,73 @@ enum VaultScanStore {
 
 enum VaultStorageError: Error {
     case documentsDirectoryUnavailable
+}
+
+extension ScanStatus {
+    var label: String {
+        switch self {
+        case .captured:
+            return "Captured"
+        case .preprocessing:
+            return "Preprocessing"
+        case .transcribing:
+            return "Transcribing"
+        case .structured:
+            return "Structured"
+        case .filed:
+            return "Filed"
+        case .error:
+            return "Needs retry"
+        }
+    }
+}
+
+extension BatchStatus {
+    var label: String {
+        switch self {
+        case .open:
+            return "Open"
+        case .queued:
+            return "Queued"
+        case .processing:
+            return "Processing"
+        case .done:
+            return "Done"
+        case .error:
+            return "Error"
+        }
+    }
+}
+
+extension ScanEntity {
+    var statusEnum: ScanStatus? {
+        ScanStatus(rawValue: status)
+    }
+
+    var statusLabel: String {
+        statusEnum?.label ?? status.capitalized
+    }
+
+    var pageLabel: String {
+        guard let pageNumber = pageNumber?.intValue, pageNumber > 0 else {
+            return "Page"
+        }
+        return "Page \(pageNumber)"
+    }
+}
+
+extension BatchEntity {
+    var statusEnum: BatchStatus? {
+        BatchStatus(rawValue: status)
+    }
+
+    var statusLabel: String {
+        statusEnum?.label ?? status.capitalized
+    }
+
+    var shortID: String {
+        String(id.uuidString.prefix(6))
+    }
 }
 
 extension CGImagePropertyOrientation {

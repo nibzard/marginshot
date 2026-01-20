@@ -114,7 +114,7 @@
         "T001",
         "T004"
       ],
-      "updated_at": "2026-01-20T15:04:00Z",
+      "updated_at": "2026-01-20T15:04:43Z",
       "files": [
         "MarginShot/Views/CaptureView.swift",
         "to-do.json"
@@ -124,7 +124,7 @@
       "id": "T006",
       "title": "Add batch capture and inbox management UI",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Create batch sessions, track scan status, show inbox count, and allow review/retry of failed items.",
       "tags": [
         "capture",
@@ -134,6 +134,11 @@
       "depends_on": [
         "T004",
         "T005"
+      ],
+      "updated_at": "2026-01-20T15:17:24Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
       ]
     },
     {
