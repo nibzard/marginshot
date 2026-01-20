@@ -343,6 +343,11 @@ struct SettingsView: View {
                 }
             }
         }
+        .onChange(of: autoProcessInbox) { newValue in
+            if newValue {
+                ProcessingQueue.shared.enqueuePendingProcessing()
+            }
+        }
         .onChange(of: privacySendImagesToLLM) { newValue in
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()

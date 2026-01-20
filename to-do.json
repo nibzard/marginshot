@@ -741,11 +741,17 @@
       "id": "T033",
       "title": "Honor auto-process inbox toggle in processing scheduler",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Gate enqueue/background processing on the auto-process setting and resume queued work when re-enabled.",
       "tags": [
         "processing",
         "settings"
+      ],
+      "updated_at": "2026-01-20T20:32:53Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
       ]
     },
     {
@@ -770,11 +776,11 @@
         "processing",
         "reliability"
       ],
-      "updated_at": "2026-01-20T20:28:23Z",
+      "updated_at": "2026-01-20T20:30:35Z",
       "files": [
+        "MarginShot/PersistenceController.swift",
         "MarginShot/ProcessingQueue.swift",
         "MarginShot/Views/CaptureView.swift",
-        "MarginShot/PersistenceController.swift",
         "to-do.json"
       ]
     },

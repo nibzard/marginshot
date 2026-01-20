@@ -5,6 +5,10 @@ import Network
 import UIKit
 
 struct ProcessingPreferences {
+    var autoProcessInbox: Bool {
+        UserDefaults.standard.object(forKey: "processingAutoProcessInbox") as? Bool ?? true
+    }
+
     var requiresWiFi: Bool {
         UserDefaults.standard.bool(forKey: "processingWiFiOnly")
     }
@@ -982,12 +986,14 @@ final class ProcessingQueue {
     }
 
     func enqueuePendingProcessing() {
+        guard preferences.autoProcessInbox else { return }
         scheduleBackgroundProcessing()
         processPendingBatchesIfNeeded()
     }
 
     func scheduleBackgroundProcessing() {
         let prefs = preferences
+        guard prefs.autoProcessInbox else { return }
         guard prefs.allowsImageUploads else { return }
         BGTaskScheduler.shared.getPendingTaskRequests { [weak self] requests in
             guard let self else { return }
@@ -1058,6 +1064,7 @@ final class ProcessingQueue {
 
     private func processPendingBatches() async -> Bool {
         let prefs = preferences
+        guard prefs.autoProcessInbox else { return true }
         guard prefs.allowsImageUploads else { return true }
         guard await hasRequiredPower() else {
             scheduleBackgroundProcessing()
