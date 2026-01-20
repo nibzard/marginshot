@@ -475,14 +475,19 @@ struct SourceRow: View {
     let source: ContextSource
     @Environment(\.openURL) private var openURL
 
-    private var fileURL: URL? {
-        guard let url = VaultLocation.fileURL(relativePath: source.path) else { return nil }
-        return VaultFileStore.decryptedCopyURL(for: url, relativePath: source.path)
+    private var vaultFileURL: URL? {
+        VaultLocation.fileURL(relativePath: source.path)
     }
 
     private var canOpen: Bool {
-        guard let fileURL else { return false }
-        return FileManager.default.fileExists(atPath: fileURL.path)
+        guard let vaultFileURL else { return false }
+        return FileManager.default.fileExists(atPath: vaultFileURL.path)
+    }
+
+    private func openSource() {
+        guard let vaultFileURL else { return }
+        guard let decryptedURL = VaultFileStore.decryptedCopyURL(for: vaultFileURL, relativePath: source.path) else { return }
+        openURL(decryptedURL)
     }
 
     var body: some View {
@@ -499,8 +504,7 @@ struct SourceRow: View {
             }
             Spacer()
             Button("Open") {
-                guard let fileURL else { return }
-                openURL(fileURL)
+                openSource()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)

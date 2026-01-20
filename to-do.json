@@ -840,7 +840,7 @@
         "MarginShot/Views/CaptureView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T21:03:19Z"
+      "updated_at": "2026-01-20T21:04:20Z"
     },
     {
       "id": "T039",
@@ -858,7 +858,67 @@
         "MarginShot/VaultFileStore.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T21:07:52Z"
+      "updated_at": "2026-01-20T21:11:11Z"
+    },
+    {
+      "id": "T040",
+      "title": "Defer decrypted temp copy creation until user opens a source",
+      "priority": 2,
+      "status": "done",
+      "details": "Source rows currently call VaultFileStore.decryptedCopyURL during render, which writes plaintext temp files for every listed source. Only decrypt/write on Open tap and base the button enabled state on vault file existence.",
+      "tags": [
+        "security",
+        "chat",
+        "vault"
+      ],
+      "files": [
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T21:25:02Z"
+    },
+    {
+      "id": "T041",
+      "title": "Use proper form encoding for GitHub OAuth token exchange",
+      "priority": 2,
+      "status": "todo",
+      "details": "GitHubAPI.exchangeCodeForToken builds an application/x-www-form-urlencoded body with urlQueryAllowed encoding. Switch to RFC 3986-compliant percent encoding so redirect_uri and verifier characters are safely encoded.",
+      "tags": [
+        "github",
+        "auth",
+        "network"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ]
+    },
+    {
+      "id": "T042",
+      "title": "Refresh task consolidation after apply-to-vault updates",
+      "priority": 3,
+      "status": "todo",
+      "details": "VaultApplyService updates index and topic pages but does not re-run TaskConsolidator; run refresh after apply so Tasks.md reflects chat-applied edits.",
+      "tags": [
+        "vault",
+        "tasks"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ]
+    },
+    {
+      "id": "T043",
+      "title": "Preserve Gemini API key if Keychain migration fails",
+      "priority": 4,
+      "status": "todo",
+      "details": "GeminiConfiguration.load removes GeminiAPIKey from UserDefaults even if Keychain save fails; only remove after a successful Keychain write and surface failure.",
+      "tags": [
+        "security",
+        "settings"
+      ],
+      "files": [
+        "MarginShot/GeminiClient.swift"
+      ]
     }
   ]
 }
