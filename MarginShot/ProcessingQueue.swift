@@ -241,6 +241,291 @@ enum VaultWriter {
     }
 }
 
+enum VaultFileAction: String, Codable {
+    case create
+    case update
+    case delete
+}
+
+struct VaultFileOperation: Codable, Equatable {
+    let action: VaultFileAction
+    let path: String
+    let content: String?
+    let noteMeta: NoteMeta?
+}
+
+struct VaultApplySummary: Equatable {
+    let createdOrUpdated: [String]
+    let deleted: [String]
+}
+
+enum VaultApplyError: Error, LocalizedError {
+    case vaultUnavailable
+    case emptyOperations
+    case invalidOperation(String)
+    case applyFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .vaultUnavailable:
+            return "Vault location is unavailable."
+        case .emptyOperations:
+            return "No changes to apply."
+        case .invalidOperation(let message):
+            return message
+        case .applyFailed(let message):
+            return "Apply failed. \(message)"
+        }
+    }
+}
+
+enum VaultApplyService {
+    private static let fileManager = FileManager.default
+    private static let allowedExtensions: Set<String> = ["md"]
+    private static let disallowedRoots: Set<String> = ["_system", "scans"]
+
+    private struct PreparedOperation {
+        let operation: VaultFileOperation
+        let path: String
+        let targetURL: URL
+        let stagedURL: URL?
+        let backupURL: URL?
+    }
+
+    static func apply(_ operations: [VaultFileOperation]) async throws -> VaultApplySummary {
+        let sanitized = try sanitizeOperations(operations)
+        guard !sanitized.isEmpty else { throw VaultApplyError.emptyOperations }
+        let rootURL = try vaultRootURL()
+
+        let stagingURL = fileManager.temporaryDirectory
+            .appendingPathComponent("marginshot-apply-\(UUID().uuidString)", isDirectory: true)
+        let stagedRootURL = stagingURL.appendingPathComponent("staged", isDirectory: true)
+        let backupRootURL = stagingURL.appendingPathComponent("backup", isDirectory: true)
+        try fileManager.createDirectory(at: stagedRootURL, withIntermediateDirectories: true, attributes: nil)
+        try fileManager.createDirectory(at: backupRootURL, withIntermediateDirectories: true, attributes: nil)
+        defer { try? fileManager.removeItem(at: stagingURL) }
+
+        var prepared: [PreparedOperation] = []
+        var seen = Set<String>()
+
+        for operation in sanitized {
+            guard seen.insert(operation.path).inserted else {
+                throw VaultApplyError.invalidOperation("Duplicate path: \(operation.path)")
+            }
+
+            let targetURL = rootURL.appendingPathComponent(operation.path)
+            try ensureWithinVault(targetURL, rootURL)
+            let exists = fileManager.fileExists(atPath: targetURL.path)
+
+            switch operation.action {
+            case .create:
+                if exists {
+                    throw VaultApplyError.invalidOperation("File already exists: \(operation.path)")
+                }
+            case .update:
+                if !exists {
+                    throw VaultApplyError.invalidOperation("File not found: \(operation.path)")
+                }
+            case .delete:
+                if !exists {
+                    throw VaultApplyError.invalidOperation("File not found: \(operation.path)")
+                }
+            }
+
+            var backupURL: URL?
+            if exists {
+                let backup = backupRootURL.appendingPathComponent(operation.path)
+                try fileManager.createDirectory(
+                    at: backup.deletingLastPathComponent(),
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
+                try fileManager.copyItem(at: targetURL, to: backup)
+                backupURL = backup
+            }
+
+            var stagedURL: URL?
+            if operation.action != .delete {
+                guard let content = operation.content,
+                      !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw VaultApplyError.invalidOperation("Missing content for \(operation.path)")
+                }
+                let staged = stagedRootURL.appendingPathComponent(operation.path)
+                try fileManager.createDirectory(
+                    at: staged.deletingLastPathComponent(),
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
+                try Data(content.utf8).write(to: staged, options: .atomic)
+                stagedURL = staged
+            }
+
+            prepared.append(
+                PreparedOperation(
+                    operation: operation,
+                    path: operation.path,
+                    targetURL: targetURL,
+                    stagedURL: stagedURL,
+                    backupURL: backupURL
+                )
+            )
+        }
+
+        var applied: [PreparedOperation] = []
+        do {
+            for item in prepared {
+                switch item.operation.action {
+                case .delete:
+                    try fileManager.removeItem(at: item.targetURL)
+                case .create, .update:
+                    guard let stagedURL = item.stagedURL else {
+                        throw VaultApplyError.invalidOperation("Missing content for \(item.path)")
+                    }
+                    try fileManager.createDirectory(
+                        at: item.targetURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true,
+                        attributes: nil
+                    )
+                    let data = try Data(contentsOf: stagedURL)
+                    try data.write(to: item.targetURL, options: .atomic)
+                }
+                applied.append(item)
+            }
+        } catch {
+            rollback(applied)
+            throw VaultApplyError.applyFailed(error.localizedDescription)
+        }
+
+        await updateIndex(for: prepared)
+        return VaultApplySummary(
+            createdOrUpdated: prepared.filter { $0.operation.action != .delete }.map { $0.path },
+            deleted: prepared.filter { $0.operation.action == .delete }.map { $0.path }
+        )
+    }
+
+    private static func sanitizeOperations(_ operations: [VaultFileOperation]) throws -> [VaultFileOperation] {
+        try operations.map { operation in
+            let normalized = try normalizePath(operation.path)
+            return VaultFileOperation(
+                action: operation.action,
+                path: normalized,
+                content: operation.content,
+                noteMeta: operation.noteMeta
+            )
+        }
+    }
+
+    private static func normalizePath(_ path: String) throws -> String {
+        var trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw VaultApplyError.invalidOperation("Missing file path.")
+        }
+        if trimmed.hasPrefix("vault/") {
+            trimmed.removeFirst("vault/".count)
+        }
+        while trimmed.hasPrefix("/") {
+            trimmed.removeFirst()
+        }
+        guard !trimmed.isEmpty else {
+            throw VaultApplyError.invalidOperation("Missing file path.")
+        }
+        let components = trimmed.split(separator: "/")
+        if components.contains(where: { $0 == "." || $0 == ".." }) {
+            throw VaultApplyError.invalidOperation("Invalid path: \(trimmed)")
+        }
+        if let first = components.first, disallowedRoots.contains(String(first)) {
+            throw VaultApplyError.invalidOperation("Path not allowed: \(trimmed)")
+        }
+        let ext = (trimmed as NSString).pathExtension.lowercased()
+        guard allowedExtensions.contains(ext) else {
+            throw VaultApplyError.invalidOperation("Only .md files can be modified.")
+        }
+        return trimmed
+    }
+
+    private static func ensureWithinVault(_ targetURL: URL, _ rootURL: URL) throws {
+        let rootPath = rootURL.standardizedFileURL.path
+        let targetPath = targetURL.standardizedFileURL.path
+        guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
+            throw VaultApplyError.invalidOperation("Path escapes vault root.")
+        }
+    }
+
+    private static func rollback(_ applied: [PreparedOperation]) {
+        for item in applied.reversed() {
+            if let backupURL = item.backupURL {
+                try? fileManager.createDirectory(
+                    at: item.targetURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
+                if fileManager.fileExists(atPath: item.targetURL.path) {
+                    _ = try? fileManager.replaceItemAt(item.targetURL, withItemAt: backupURL)
+                } else {
+                    try? fileManager.copyItem(at: backupURL, to: item.targetURL)
+                }
+            } else {
+                try? fileManager.removeItem(at: item.targetURL)
+            }
+        }
+    }
+
+    private static func updateIndex(for operations: [PreparedOperation]) async {
+        for item in operations {
+            switch item.operation.action {
+            case .delete:
+                await VaultIndexStore.shared.removeNote(path: item.path, context: nil)
+            case .create, .update:
+                guard let content = item.operation.content else { continue }
+                let meta = resolvedNoteMeta(for: item.operation, content: content)
+                await VaultIndexStore.shared.updateAfterNoteWrite(
+                    notePath: item.path,
+                    noteTitle: meta.title,
+                    noteMeta: meta,
+                    context: nil
+                )
+            }
+        }
+    }
+
+    private static func resolvedNoteMeta(for operation: VaultFileOperation, content: String) -> NoteMeta {
+        let trimmedTitle = operation.noteMeta?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = trimmedTitle.isEmpty ? inferredTitle(from: content, path: operation.path) : trimmedTitle
+        return NoteMeta(
+            title: title,
+            summary: operation.noteMeta?.summary,
+            tags: operation.noteMeta?.tags,
+            links: operation.noteMeta?.links
+        )
+    }
+
+    private static func inferredTitle(from content: String, path: String) -> String {
+        for line in content.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("#") {
+                let title = trimmed
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !title.isEmpty {
+                    return title
+                }
+            }
+        }
+        let base = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        if !base.isEmpty {
+            return base.replacingOccurrences(of: "-", with: " ")
+        }
+        return "Untitled"
+    }
+
+    private static func vaultRootURL() throws -> URL {
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw VaultApplyError.vaultUnavailable
+        }
+        return documentsURL.appendingPathComponent("vault", isDirectory: true)
+    }
+}
+
 final class ProcessingQueue {
     static let shared = ProcessingQueue()
 

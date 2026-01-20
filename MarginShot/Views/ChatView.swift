@@ -44,9 +44,14 @@ struct ChatView: View {
                         emptyState
                     } else {
                         ForEach(viewModel.messages) { message in
+                            let isApplying = viewModel.applyingMessageIds.contains(message.id)
+                            let isApplied = viewModel.appliedMessageIds.contains(message.id)
                             MessageRow(
                                 message: message,
-                                isSourcesExpanded: sourcesBinding(for: message)
+                                isSourcesExpanded: sourcesBinding(for: message),
+                                onApply: message.fileOps.isEmpty ? nil : { viewModel.applyFileOps(for: message) },
+                                isApplying: isApplying,
+                                isApplied: isApplied
                             )
                         }
 
@@ -160,6 +165,7 @@ struct ChatMessage: Identifiable, Equatable {
     let text: String
     let grounded: Bool
     let sources: [ContextSource]
+    let fileOps: [VaultFileOperation]
     let warnings: [String]
 
     init(
@@ -168,6 +174,7 @@ struct ChatMessage: Identifiable, Equatable {
         text: String,
         grounded: Bool = true,
         sources: [ContextSource] = [],
+        fileOps: [VaultFileOperation] = [],
         warnings: [String] = []
     ) {
         self.id = id
@@ -175,6 +182,7 @@ struct ChatMessage: Identifiable, Equatable {
         self.text = text
         self.grounded = grounded
         self.sources = sources
+        self.fileOps = fileOps
         self.warnings = warnings
     }
 }
@@ -183,6 +191,8 @@ final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var draft: String = ""
     @Published var isThinking = false
+    @Published var applyingMessageIds: Set<UUID> = []
+    @Published var appliedMessageIds: Set<UUID> = []
 
     private var agent: ChatAgent?
     var preferredBatchId: UUID?
@@ -222,6 +232,7 @@ final class ChatViewModel: ObservableObject {
                 text: response.answer,
                 grounded: response.grounded,
                 sources: response.usedSources,
+                fileOps: response.fileOps,
                 warnings: response.warnings
             )
         } catch let error as GeminiClientError {
@@ -235,6 +246,52 @@ final class ChatViewModel: ObservableObject {
                 grounded: false
             )
         }
+    }
+
+    func applyFileOps(for message: ChatMessage) {
+        guard !message.fileOps.isEmpty else { return }
+        guard !applyingMessageIds.contains(message.id) else { return }
+        applyingMessageIds.insert(message.id)
+        let messageId = message.id
+        let fileOps = message.fileOps
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let summary = try await VaultApplyService.apply(fileOps)
+                let successMessage = applySummaryMessage(summary)
+                await MainActor.run {
+                    self.applyingMessageIds.remove(messageId)
+                    self.appliedMessageIds.insert(messageId)
+                    self.messages.append(ChatMessage(role: .assistant, text: successMessage, grounded: true))
+                }
+                await SyncCoordinator.shared.syncIfNeeded(trigger: .applyToVault)
+            } catch {
+                await MainActor.run {
+                    self.applyingMessageIds.remove(messageId)
+                    self.messages.append(
+                        ChatMessage(
+                            role: .assistant,
+                            text: "Apply to vault failed. \(error.localizedDescription)",
+                            grounded: false
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private func applySummaryMessage(_ summary: VaultApplySummary) -> String {
+        let created = summary.createdOrUpdated.count
+        let deleted = summary.deleted.count
+        let total = created + deleted
+        if deleted == 0 {
+            return "Applied \(created) change\(created == 1 ? "" : "s") to your vault."
+        }
+        if created == 0 {
+            return "Applied \(deleted) deletion\(deleted == 1 ? "" : "s") to your vault."
+        }
+        return "Applied \(total) changes to your vault."
     }
 
     private func ensureAgent() throws -> ChatAgent {
@@ -264,6 +321,9 @@ final class ChatViewModel: ObservableObject {
 struct MessageRow: View {
     let message: ChatMessage
     @Binding var isSourcesExpanded: Bool
+    let onApply: (() -> Void)?
+    let isApplying: Bool
+    let isApplied: Bool
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -273,6 +333,15 @@ struct MessageRow: View {
                     if !message.sources.isEmpty {
                         SourcesDisclosure(sources: message.sources, isExpanded: $isSourcesExpanded)
                             .frame(maxWidth: 340, alignment: .leading)
+                    }
+                    if let onApply, !message.fileOps.isEmpty {
+                        ApplyToVaultCard(
+                            fileCount: message.fileOps.count,
+                            isApplying: isApplying,
+                            isApplied: isApplied,
+                            action: onApply
+                        )
+                        .frame(maxWidth: 340, alignment: .leading)
                     }
                 }
                 Spacer(minLength: 0)
@@ -330,6 +399,53 @@ struct SourcesDisclosure: View {
             .foregroundColor(.secondary)
         }
         .tint(.secondary)
+    }
+}
+
+struct ApplyToVaultCard: View {
+    let fileCount: Int
+    let isApplying: Bool
+    let isApplied: Bool
+    let action: () -> Void
+
+    private var fileLabel: String {
+        "\(fileCount) file\(fileCount == 1 ? "" : "s")"
+    }
+
+    private var buttonTitle: String {
+        if isApplied {
+            return "Applied to vault"
+        }
+        if isApplying {
+            return "Applying..."
+        }
+        return "Apply to vault"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Proposed changes")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            Text(fileLabel)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    if isApplying {
+                        ProgressView()
+                    }
+                    Text(buttonTitle)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isApplying || isApplied)
+        }
+        .padding(12)
+        .background(Color(.systemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 

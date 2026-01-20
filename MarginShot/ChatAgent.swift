@@ -18,6 +18,7 @@ struct ChatResponse: Codable, Equatable {
     let answer: String
     let grounded: Bool
     let usedSources: [ContextSource]
+    let fileOps: [VaultFileOperation]
     let warnings: [String]
 }
 
@@ -93,6 +94,7 @@ final class ChatAgent {
             answer: Self.notFoundAnswer,
             grounded: false,
             usedSources: [],
+            fileOps: [],
             warnings: warnings
         )
     }
@@ -127,6 +129,7 @@ final class ChatAgent {
             answer: answer,
             grounded: true,
             usedSources: usedSources,
+            fileOps: payload.fileOps,
             warnings: warnings
         )
     }
@@ -141,6 +144,7 @@ private struct ChatResponsePayload: Decodable {
     let answer: String
     let grounded: Bool
     let usedSources: [ChatSourceReference]
+    let fileOps: [VaultFileOperation]
     let warnings: [String]
 
     init(from decoder: Decoder) throws {
@@ -148,6 +152,7 @@ private struct ChatResponsePayload: Decodable {
         answer = (try? container.decode(String.self, forKey: .answer)) ?? ""
         grounded = (try? container.decode(Bool.self, forKey: .grounded)) ?? false
         usedSources = (try? container.decode([ChatSourceReference].self, forKey: .usedSources)) ?? []
+        fileOps = (try? container.decode([VaultFileOperation].self, forKey: .fileOps)) ?? []
         warnings = (try? container.decode([String].self, forKey: .warnings)) ?? []
     }
 }
@@ -163,9 +168,22 @@ private enum ChatPrompts {
           "answer": "string",
           "grounded": true|false,
           "usedSources": [{"path": "string", "title": "string"}],
+          "fileOps": [{
+            "action": "create|update|delete",
+            "path": "string",
+            "content": "string",
+            "noteMeta": {
+              "title": "string",
+              "summary": "string",
+              "tags": ["string"],
+              "links": ["string"]
+            }
+          }],
           "warnings": ["string"]
         }
         usedSources must be a subset of the provided context bundle sources and must use exact path values.
+        fileOps must be an empty array when no changes are requested. Paths must be vault-relative (e.g. "01_daily/2026-01-20.md").
+        fileOps content must be full file contents without diffs or Markdown fences. Do not write to _system or scans.
         """
 
         let trimmedRules = systemRules.trimmingCharacters(in: .whitespacesAndNewlines)

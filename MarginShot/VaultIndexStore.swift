@@ -102,6 +102,19 @@ final class VaultIndexStore {
         }
     }
 
+    func removeNote(path: String, context: NSManagedObjectContext?) async {
+        do {
+            let rootURL = try vaultRootURL()
+            let now = Date()
+            let notesCount = try removeFromIndexJSON(path: path, rootURL: rootURL, updatedAt: now)
+            try updateStructureFile(rootURL: rootURL)
+            try removeFromSearchStore(path: path, rootURL: rootURL)
+            await updateIndexEntity(context: context, notesCount: notesCount, updatedAt: now)
+        } catch {
+            print("Index removal failed: \(error)")
+        }
+    }
+
     func retrieveContextBundle(
         query: String,
         preferredBatchId: UUID? = nil,
@@ -223,6 +236,17 @@ final class VaultIndexStore {
         return snapshot.notes.count
     }
 
+    private func removeFromIndexJSON(path: String, rootURL: URL, updatedAt: Date) throws -> Int {
+        let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
+        var snapshot = loadIndexSnapshot(from: indexURL)
+        snapshot.notes.removeAll { $0.path == path }
+        snapshot.notes.sort { $0.path < $1.path }
+        snapshot.generatedAt = isoFormatter.string(from: updatedAt)
+        let data = try encoder.encode(snapshot)
+        try data.write(to: indexURL, options: .atomic)
+        return snapshot.notes.count
+    }
+
     private func loadIndexSnapshot(from url: URL) -> IndexSnapshot {
         guard let data = try? Data(contentsOf: url) else {
             return IndexSnapshot(notes: [])
@@ -281,6 +305,24 @@ final class VaultIndexStore {
             try createSearchTable(db)
             try deleteEntry(db, path: entry.path)
             try insertEntry(db, entry: entry, body: body)
+        }
+    }
+
+    private func removeFromSearchStore(path: String, rootURL: URL) throws {
+        let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
+        guard fileManager.fileExists(atPath: searchURL.path) else {
+            return
+        }
+
+        try withSQLite {
+            var db: OpaquePointer?
+            guard sqlite3_open(searchURL.path, &db) == SQLITE_OK else {
+                throw VaultIndexError.sqliteOpenFailed
+            }
+            defer { sqlite3_close(db) }
+            sqlite3_busy_timeout(db, 1000)
+            try createSearchTable(db)
+            try deleteEntry(db, path: path)
         }
     }
 

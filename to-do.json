@@ -444,14 +444,14 @@
         "T016",
         "T008"
       ],
-      "updated_at": "2026-01-20T17:37:54Z",
+      "updated_at": "2026-01-20T17:38:49Z",
       "files": [
-        "MarginShot/SystemRulesStore.swift",
-        "MarginShot/Views/SystemRulesEditorView.swift",
-        "MarginShot/Views/SettingsView.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
         "MarginShot/ContentView.swift",
         "MarginShot/ProcessingPipeline.swift",
-        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/SystemRulesStore.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "MarginShot/Views/SystemRulesEditorView.swift",
         "to-do.json"
       ]
     },
@@ -459,7 +459,7 @@
       "id": "T021",
       "title": "Implement apply-to-vault workflow",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Parse fileOps from chat, apply changes in a single transaction, and surface success/failure.",
       "tags": [
         "chat",
@@ -468,6 +468,15 @@
       "depends_on": [
         "T010",
         "T014"
+      ],
+      "updated_at": "2026-01-20T17:53:00Z",
+      "files": [
+        "MarginShot/ChatAgent.swift",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/VaultIndexStore.swift",
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
       ]
     },
     {

@@ -94,7 +94,7 @@ struct FastProcessingPayload: Decodable {
     let warnings: [String]?
 }
 
-struct NoteMeta: Codable {
+struct NoteMeta: Codable, Equatable {
     let title: String
     let summary: String?
     let tags: [String]?
