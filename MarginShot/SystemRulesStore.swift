@@ -21,11 +21,11 @@ enum SystemRulesStore {
         }
     }
 
-    static func loadForPrompt(maxCharacters: Int = 8000) -> String {
-        loadForPrompt(overrides: nil, maxCharacters: maxCharacters)
+    static func loadForPrompt(maxCharacters: Int = 8000, linkingEnabled: Bool = true) -> String {
+        loadForPrompt(overrides: nil, maxCharacters: maxCharacters, linkingEnabled: linkingEnabled)
     }
 
-    static func loadForPrompt(overrides: String?, maxCharacters: Int = 8000) -> String {
+    static func loadForPrompt(overrides: String?, maxCharacters: Int = 8000, linkingEnabled: Bool = true) -> String {
         let baseRules = load()
         let trimmedOverrides = overrides?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let combined: String
@@ -40,9 +40,10 @@ enum SystemRulesStore {
             \(trimmedOverrides)
             """
         }
-        guard combined.count > maxCharacters else { return combined }
-        let endIndex = combined.index(combined.startIndex, offsetBy: maxCharacters)
-        return String(combined[..<endIndex])
+        let filtered = linkingEnabled ? combined : stripLinkingInstructions(from: combined)
+        guard filtered.count > maxCharacters else { return filtered }
+        let endIndex = filtered.index(filtered.startIndex, offsetBy: maxCharacters)
+        return String(filtered[..<endIndex])
     }
 
     static func save(_ rules: String) throws {
@@ -82,6 +83,16 @@ enum SystemRulesStore {
             throw SystemRulesError.documentsDirectoryUnavailable
         }
         return documentsURL.appendingPathComponent("vault", isDirectory: true)
+    }
+
+    private static func stripLinkingInstructions(from rules: String) -> String {
+        let lines = rules.split(separator: "\n", omittingEmptySubsequences: false)
+        let filtered = lines.filter { line in
+            let lower = line.lowercased()
+            let hasWikiLink = lower.contains("wiki-link") || lower.contains("wiki link") || lower.contains("wikilink")
+            return !hasWikiLink
+        }
+        return filtered.joined(separator: "\n")
     }
 }
 

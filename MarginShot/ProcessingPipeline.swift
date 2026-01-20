@@ -19,22 +19,28 @@ struct ProcessingContextSnapshot {
     let indexJSON: String?
     let structureText: String?
     let organizationStyle: OrganizationStyle
+    let linkingEnabled: Bool
 }
 
 enum ProcessingContextLoader {
     static func load(rulesOverrides: String? = nil) -> ProcessingContextSnapshot {
-        let systemRules = SystemRulesStore.loadForPrompt(overrides: rulesOverrides)
+        let preferences = OrganizationPreferences()
+        let systemRules = SystemRulesStore.loadForPrompt(
+            overrides: rulesOverrides,
+            linkingEnabled: preferences.linkingEnabled
+        )
         var indexJSON: String?
         var structureText: String?
         indexJSON = readVaultText(path: "_system/INDEX.json")
         structureText = readVaultText(path: "_system/STRUCTURE.txt")
-        let organizationStyle = OrganizationPreferences().style
+        let organizationStyle = preferences.style
 
         return ProcessingContextSnapshot(
             systemRules: systemRules,
             indexJSON: indexJSON,
             structureText: structureText,
-            organizationStyle: organizationStyle
+            organizationStyle: organizationStyle,
+            linkingEnabled: preferences.linkingEnabled
         )
     }
 
@@ -133,7 +139,8 @@ enum ScanProcessingPipeline {
     ) async throws -> ScanProcessingOutput {
         let prompt = ProcessingPrompts.fastPrompt(
             systemRules: context.systemRules,
-            organizationStyle: context.organizationStyle
+            organizationStyle: context.organizationStyle,
+            linkingEnabled: context.linkingEnabled
         )
         let response = try await client.generateContent(
             contents: [
@@ -264,7 +271,8 @@ enum ScanProcessingPipeline {
             systemRules: context.systemRules,
             indexJSON: context.indexJSON,
             structureText: context.structureText,
-            organizationStyle: context.organizationStyle
+            organizationStyle: context.organizationStyle,
+            linkingEnabled: context.linkingEnabled
         )
         let response = try await client.generateText(
             prompt: prompt,
@@ -284,7 +292,8 @@ enum ScanProcessingPipeline {
             systemRules: context.systemRules,
             indexJSON: context.indexJSON,
             structureText: context.structureText,
-            organizationStyle: context.organizationStyle
+            organizationStyle: context.organizationStyle,
+            linkingEnabled: context.linkingEnabled
         )
         let response = try await client.generateText(
             prompt: prompt,
@@ -374,7 +383,8 @@ enum ProcessingPrompts {
         systemRules: String,
         indexJSON: String?,
         structureText: String?,
-        organizationStyle: OrganizationStyle
+        organizationStyle: OrganizationStyle,
+        linkingEnabled: Bool
     ) -> String {
         let folderOptions = VaultFolder.promptList(style: organizationStyle)
         var prompt = """
@@ -398,10 +408,12 @@ enum ProcessingPrompts {
         - markdown must be a clean note with sections when appropriate.
         - noteMeta.title must be present.
         - classification.folder must be one of the listed folders.
-        - Use [[Wiki Link]] syntax for entities or projects mentioned in markdown.
-        - List each unique wiki-link title (without brackets) in noteMeta.links.
-        - Do not include markdown fences or extra keys.
         """
+        if linkingEnabled {
+            prompt += "\n- Use [[Wiki Link]] syntax for entities or projects mentioned in markdown."
+            prompt += "\n- List each unique wiki-link title (without brackets) in noteMeta.links."
+        }
+        prompt += "\n- Do not include markdown fences or extra keys."
 
         prompt += "\n\nSystem rules:\n\(systemRules)"
         if let indexJSON {
@@ -419,9 +431,13 @@ enum ProcessingPrompts {
         systemRules: String,
         indexJSON: String?,
         structureText: String?,
-        organizationStyle: OrganizationStyle
+        organizationStyle: OrganizationStyle,
+        linkingEnabled: Bool
     ) -> String {
         let folderOptions = VaultFolder.promptList(style: organizationStyle)
+        let refinementScope = linkingEnabled
+            ? "structure, links, and classification"
+            : "structure and classification"
         var prompt = """
         You will refine a structured note using system rules and the vault context.
         Return JSON only with this schema:
@@ -440,11 +456,13 @@ enum ProcessingPrompts {
           "warnings": ["string"]
         }
         Rules:
-        - Keep meaning unchanged; only improve structure, links, and classification.
-        - Use [[Wiki Link]] syntax for entities or projects mentioned in markdown.
-        - List each unique wiki-link title (without brackets) in noteMeta.links.
-        - Do not include markdown fences or extra keys.
+        - Keep meaning unchanged; only improve \(refinementScope).
         """
+        if linkingEnabled {
+            prompt += "\n- Use [[Wiki Link]] syntax for entities or projects mentioned in markdown."
+            prompt += "\n- List each unique wiki-link title (without brackets) in noteMeta.links."
+        }
+        prompt += "\n- Do not include markdown fences or extra keys."
 
         prompt += "\n\nSystem rules:\n\(systemRules)"
         if let indexJSON {
@@ -457,7 +475,7 @@ enum ProcessingPrompts {
         return prompt
     }
 
-    static func fastPrompt(systemRules: String, organizationStyle: OrganizationStyle) -> String {
+    static func fastPrompt(systemRules: String, organizationStyle: OrganizationStyle, linkingEnabled: Bool) -> String {
         let folderOptions = VaultFolder.promptList(style: organizationStyle)
         var prompt = """
         You are transcribing and structuring a notebook page image in one pass.
@@ -484,10 +502,12 @@ enum ProcessingPrompts {
         - markdown must be a clean note with sections when appropriate.
         - noteMeta.title must be present.
         - classification.folder must be one of the listed folders.
-        - Use [[Wiki Link]] syntax for entities or projects mentioned in markdown.
-        - List each unique wiki-link title (without brackets) in noteMeta.links.
-        - Do not include markdown fences or extra keys.
         """
+        if linkingEnabled {
+            prompt += "\n- Use [[Wiki Link]] syntax for entities or projects mentioned in markdown."
+            prompt += "\n- List each unique wiki-link title (without brackets) in noteMeta.links."
+        }
+        prompt += "\n- Do not include markdown fences or extra keys."
         prompt += "\n\nSystem rules:\n\(systemRules)"
         return prompt
     }

@@ -25,6 +25,10 @@ struct OrganizationPreferences {
         return .simple
     }
 
+    var linkingEnabled: Bool {
+        UserDefaults.standard.object(forKey: "organizationLinkingEnabled") as? Bool ?? true
+    }
+
     var topicPagesEnabled: Bool {
         UserDefaults.standard.bool(forKey: "organizationTopicPagesEnabled")
     }

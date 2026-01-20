@@ -747,7 +747,7 @@
         "processing",
         "settings"
       ],
-      "updated_at": "2026-01-20T20:32:53Z",
+      "updated_at": "2026-01-20T20:33:19Z",
       "files": [
         "MarginShot/ProcessingQueue.swift",
         "MarginShot/Views/SettingsView.swift",
@@ -758,12 +758,21 @@
       "id": "T034",
       "title": "Respect linking toggle for wiki-links and entity page creation",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Disable link injection, entity page creation, and prompt instructions when linking is turned off.",
       "tags": [
         "organization",
         "vault",
         "llm"
+      ],
+      "updated_at": "2026-01-20T20:40:30Z",
+      "files": [
+        "MarginShot/OrganizationSettings.swift",
+        "MarginShot/SystemRulesStore.swift",
+        "MarginShot/ProcessingPipeline.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/VaultIndexStore.swift",
+        "to-do.json"
       ]
     },
     {

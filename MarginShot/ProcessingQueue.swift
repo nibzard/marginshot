@@ -105,8 +105,9 @@ enum VaultWriter {
 
     static func apply(input: VaultWriterInput) throws -> VaultWriteResult {
         let rootURL = try vaultRootURL()
-        let resolved = resolveWikiLinks(for: input)
-        let style = OrganizationPreferences().style
+        let preferences = OrganizationPreferences()
+        let resolved = resolveWikiLinks(for: input, linkingEnabled: preferences.linkingEnabled)
+        let style = preferences.style
         let normalizedStructured = try normalizeClassification(resolved.structured, style: style)
         let folder = normalizedStructured.classification.folder
         let noteResult = try writeNote(
@@ -135,7 +136,12 @@ enum VaultWriter {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let metadataData = try encoder.encode(metadata)
         try writeAtomically(data: metadataData, to: metadataURL)
-        let createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL, style: style)
+        let createdEntities: [EntityPage]
+        if preferences.linkingEnabled {
+            createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL, style: style)
+        } else {
+            createdEntities = []
+        }
         return VaultWriteResult(
             notePath: noteResult.path,
             noteTitle: noteResult.title,
@@ -260,8 +266,23 @@ enum VaultWriter {
         let linkTitles: [String]
     }
 
-    private static func resolveWikiLinks(for input: VaultWriterInput) -> ResolvedNoteLinks {
+    private static func resolveWikiLinks(for input: VaultWriterInput, linkingEnabled: Bool) -> ResolvedNoteLinks {
         let baseMarkdown = normalizedMarkdown(input.structured.markdown)
+        guard linkingEnabled else {
+            let updatedNoteMeta = NoteMeta(
+                title: input.structured.noteMeta.title,
+                summary: input.structured.noteMeta.summary,
+                tags: input.structured.noteMeta.tags,
+                links: nil
+            )
+            let updatedStructured = StructurePayload(
+                markdown: baseMarkdown,
+                noteMeta: updatedNoteMeta,
+                classification: input.structured.classification,
+                warnings: input.structured.warnings
+            )
+            return ResolvedNoteLinks(structured: updatedStructured, linkTitles: [])
+        }
         let extracted = extractWikiLinks(from: baseMarkdown, limit: 24)
         let merged = mergeLinkTitles(primary: input.structured.noteMeta.links, secondary: extracted)
         let updatedMarkdown = appendMissingLinks(to: baseMarkdown, links: merged)

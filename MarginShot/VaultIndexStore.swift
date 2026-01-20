@@ -138,6 +138,7 @@ final class VaultIndexStore {
                 limit: max(1, maxResults * 2)
             )
             let tokens = tokenizeQuery(trimmedQuery)
+            let linkingEnabled = OrganizationPreferences().linkingEnabled
 
             var selectedEntries: [IndexNoteEntry] = []
             var selectedPaths = Set<String>()
@@ -172,7 +173,7 @@ final class VaultIndexStore {
             }
 
             if selectedEntries.count < maxResults, !tokens.isEmpty {
-                let ranked = rankIndexEntries(snapshot.notes, tokens: tokens)
+                let ranked = rankIndexEntries(snapshot.notes, tokens: tokens, includeLinks: linkingEnabled)
                 for scored in ranked {
                     guard selectedEntries.count < maxResults else { break }
                     if selectedPaths.insert(scored.entry.path).inserted {
@@ -181,9 +182,9 @@ final class VaultIndexStore {
                 }
             }
 
-            let linkLookup = buildLinkLookup(snapshot.notes)
+            let linkLookup = linkingEnabled ? buildLinkLookup(snapshot.notes) : [:]
             var linkedEntries: [IndexNoteEntry] = []
-            if maxLinkedNotes > 0 {
+            if linkingEnabled, maxLinkedNotes > 0 {
                 for entry in selectedEntries {
                     guard linkedEntries.count < maxLinkedNotes else { break }
                     let linkCandidates = collectLinks(from: entry, snippetByPath: snippetByPath)
@@ -206,7 +207,7 @@ final class VaultIndexStore {
                     title: entry.title,
                     summary: entry.summary,
                     tags: entry.tags,
-                    links: entry.links,
+                    links: linkingEnabled ? entry.links : nil,
                     excerpt: excerpt,
                     body: body
                 )
@@ -421,14 +422,18 @@ final class VaultIndexStore {
         return trimmedTokens.map { "\($0)*" }.joined(separator: " OR ")
     }
 
-    private func rankIndexEntries(_ entries: [IndexNoteEntry], tokens: [String]) -> [ScoredEntry] {
+    private func rankIndexEntries(
+        _ entries: [IndexNoteEntry],
+        tokens: [String],
+        includeLinks: Bool
+    ) -> [ScoredEntry] {
         guard !tokens.isEmpty else { return [] }
         let tokenSet = Set(tokens)
         let scored = entries.compactMap { entry -> ScoredEntry? in
             let title = entry.title.lowercased()
             let summary = (entry.summary ?? "").lowercased()
             let tags = (entry.tags ?? []).joined(separator: " ").lowercased()
-            let links = (entry.links ?? []).joined(separator: " ").lowercased()
+            let links = includeLinks ? (entry.links ?? []).joined(separator: " ").lowercased() : ""
             var score = 0
             for token in tokenSet {
                 if title.contains(token) {
