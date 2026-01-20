@@ -616,6 +616,12 @@ final class ProcessingQueue {
                 noteTitle: result.noteTitle,
                 noteMeta: writerInput.structured.noteMeta
             )
+            await VaultIndexStore.shared.updateAfterNoteWrite(
+                notePath: result.notePath,
+                noteTitle: result.noteTitle,
+                noteMeta: writerInput.structured.noteMeta,
+                context: context
+            )
             return true
         } catch {
             await markScanError(objectID: objectID, context: context)

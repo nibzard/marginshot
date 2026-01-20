@@ -225,7 +225,7 @@
         "T003",
         "T009"
       ],
-      "updated_at": "2026-01-20T15:58:08Z",
+      "updated_at": "2026-01-20T15:58:42Z",
       "files": [
         "MarginShot/ProcessingPipeline.swift",
         "MarginShot/ProcessingQueue.swift",
@@ -236,7 +236,7 @@
       "id": "T011",
       "title": "Create the indexer and local search store",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Maintain INDEX.json and STRUCTURE.txt, plus a SQLite FTS index for fast retrieval.",
       "tags": [
         "index",
@@ -244,6 +244,13 @@
       ],
       "depends_on": [
         "T010"
+      ],
+      "updated_at": "2026-01-20T16:04:48Z",
+      "files": [
+        "MarginShot/VaultIndexStore.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "to-do.json"
       ]
     },
     {
