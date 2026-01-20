@@ -115,6 +115,24 @@ final class VaultIndexStore {
         }
     }
 
+    func rebuildSearchIndex() {
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            do {
+                let rootURL = try self.vaultRootURL()
+                if VaultFileStore.isEncryptionEnabled() {
+                    self.removeSearchStoreFiles(rootURL: rootURL)
+                    return
+                }
+                let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
+                let snapshot = self.loadIndexSnapshot(from: indexURL)
+                try self.rebuildSearchStore(entries: snapshot.notes, rootURL: rootURL)
+            } catch {
+                print("Search index rebuild failed: \(error)")
+            }
+        }
+    }
+
     func retrieveContextBundle(
         query: String,
         preferredBatchId: UUID? = nil,
@@ -310,6 +328,26 @@ final class VaultIndexStore {
             try createSearchTable(db)
             try deleteEntry(db, path: entry.path)
             try insertEntry(db, entry: entry, body: body)
+        }
+    }
+
+    private func rebuildSearchStore(entries: [IndexNoteEntry], rootURL: URL) throws {
+        let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
+        try fileManager.createDirectory(at: searchURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        try withSQLite {
+            removeSearchStoreFiles(rootURL: rootURL)
+            var db: OpaquePointer?
+            guard sqlite3_open(searchURL.path, &db) == SQLITE_OK else {
+                throw VaultIndexError.sqliteOpenFailed
+            }
+            defer { sqlite3_close(db) }
+            sqlite3_busy_timeout(db, 1000)
+            try createSearchTable(db)
+            for entry in entries {
+                guard let body = loadNoteBodyFull(path: entry.path) else { continue }
+                try insertEntry(db, entry: entry, body: body)
+            }
         }
     }
 
@@ -636,6 +674,14 @@ final class VaultIndexStore {
         if contents.count > maxCharacters {
             let endIndex = contents.index(contents.startIndex, offsetBy: maxCharacters)
             return String(contents[..<endIndex])
+        }
+        return contents
+    }
+
+    private func loadNoteBodyFull(path: String) -> String? {
+        guard let url = try? VaultScanStore.url(for: path),
+              let contents = try? VaultFileStore.readText(from: url) else {
+            return nil
         }
         return contents
     }

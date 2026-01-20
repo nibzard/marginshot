@@ -964,7 +964,7 @@
       "id": "T046",
       "title": "Define disable-encryption behavior and rebuild search index",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "When local encryption is turned off, either decrypt the vault or warn that files remain encrypted; ensure FTS search is rebuilt when encryption is disabled so retrieval returns full-text results.",
       "tags": [
         "privacy",
@@ -974,8 +974,10 @@
       "files": [
         "MarginShot/VaultFileStore.swift",
         "MarginShot/VaultIndexStore.swift",
-        "MarginShot/Views/SettingsView.swift"
-      ]
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T22:22:34Z"
     }
   ]
 }

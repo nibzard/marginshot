@@ -101,6 +101,7 @@ struct SettingsView: View {
     @State private var isShowingZipShare = false
     @State private var vaultZipURL: URL?
     @State private var vaultZipError: String?
+    @State private var isShowingEncryptionDisabledNotice = false
 
     private var syncDestination: Binding<SyncDestination> {
         Binding(
@@ -355,6 +356,9 @@ struct SettingsView: View {
         }
         .onChange(of: privacyLocalEncryptionEnabled) { newValue in
             VaultEncryptionManager.handleSettingChange(enabled: newValue)
+            if !newValue {
+                isShowingEncryptionDisabledNotice = true
+            }
         }
         .onChange(of: advancedEnableZipExport) { newValue in
             if !newValue {
@@ -414,6 +418,11 @@ struct SettingsView: View {
                 Text("No ZIP available.")
                     .presentationDetents([.medium])
             }
+        }
+        .alert("Local encryption is off", isPresented: $isShowingEncryptionDisabledNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Existing encrypted files remain encrypted until rewritten. Full-text search will rebuild now.")
         }
     }
 

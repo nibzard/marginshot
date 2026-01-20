@@ -146,8 +146,11 @@ enum VaultEncryptionManager {
     }
 
     static func handleSettingChange(enabled: Bool) {
-        guard enabled else { return }
-        startIfNeeded()
+        if enabled {
+            startIfNeeded()
+        } else {
+            VaultIndexStore.shared.rebuildSearchIndex()
+        }
     }
 
     private static func encryptVault() throws {
