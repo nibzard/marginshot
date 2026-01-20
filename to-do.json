@@ -286,10 +286,10 @@
         "T008",
         "T012"
       ],
-      "updated_at": "2026-01-20T16:17:03Z",
+      "updated_at": "2026-01-20T16:17:38Z",
       "files": [
-        "MarginShot/ChatAgent.swift",
         "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/ChatAgent.swift",
         "to-do.json"
       ]
     },
@@ -297,7 +297,7 @@
       "id": "T014",
       "title": "Build the chat UI with sources disclosure",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Chat bubbles, input bar, typing indicator, and collapsible used sources with open actions.",
       "tags": [
         "chat",
@@ -305,6 +305,11 @@
       ],
       "depends_on": [
         "T013"
+      ],
+      "updated_at": "2026-01-20T16:27:52Z",
+      "files": [
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
       ]
     },
     {
