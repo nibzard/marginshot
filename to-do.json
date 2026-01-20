@@ -544,12 +544,12 @@
         "T017",
         "T018"
       ],
-      "updated_at": "2026-01-20T18:23:10Z",
+      "updated_at": "2026-01-20T18:24:30Z",
       "files": [
-        "MarginShot/Views/SettingsView.swift",
-        "MarginShot/ProcessingQueue.swift",
         "MarginShot/GeminiClient.swift",
         "MarginShot/Info.plist",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ]
     },
@@ -598,7 +598,7 @@
         "T010",
         "T016"
       ],
-      "updated_at": "2026-01-20T18:28:25Z",
+      "updated_at": "2026-01-20T18:30:30Z",
       "files": [
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
@@ -637,7 +637,7 @@
       "id": "T031",
       "title": "Create test coverage and QA plan",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Add unit tests for pipeline logic, integration tests for vault/sync, and UI smoke tests.",
       "tags": [
         "tests",
@@ -647,6 +647,16 @@
         "T010",
         "T017",
         "T014"
+      ],
+      "updated_at": "2026-01-20T18:44:54Z",
+      "files": [
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/MarginShotApp.swift",
+        "MarginShotTests/PipelineLogicTests.swift",
+        "MarginShotTests/VaultSyncIntegrationTests.swift",
+        "MarginShotUITests/MarginShotUITests.swift",
+        "QA.md",
+        "to-do.json"
       ]
     },
     {
