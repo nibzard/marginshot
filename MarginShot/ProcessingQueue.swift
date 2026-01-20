@@ -1781,7 +1781,7 @@ actor SyncCoordinator {
         let prefs = SyncPreferences()
         await SyncStatusStore.shared.updateDestination(prefs.destination)
         guard !isSyncing else { return }
-        guard await constraintsSatisfied(prefs) else { return }
+        guard await constraintsSatisfied(prefs, destination: prefs.destination) else { return }
         switch prefs.destination {
         case .off:
             return
@@ -1858,7 +1858,7 @@ actor SyncCoordinator {
         return true
     }
 
-    private func constraintsSatisfied(_ prefs: SyncPreferences) async -> Bool {
+    private func constraintsSatisfied(_ prefs: SyncPreferences, destination: SyncDestination) async -> Bool {
         if prefs.requiresExternalPower {
             let hasPower = await MainActor.run {
                 UIDevice.current.isBatteryMonitoringEnabled = true
@@ -1867,9 +1867,22 @@ actor SyncCoordinator {
             }
             guard hasPower else { return false }
         }
-        if prefs.requiresWiFi {
-            let wifiAvailable = await NetworkConstraintChecker.isWiFiAvailable()
-            guard wifiAvailable else { return false }
+        switch destination {
+        case .github:
+            if prefs.requiresWiFi {
+                let wifiAvailable = await NetworkConstraintChecker.isWiFiAvailable()
+                guard wifiAvailable else { return false }
+            } else {
+                let networkAvailable = await NetworkConstraintChecker.isNetworkAvailable()
+                guard networkAvailable else { return false }
+            }
+        case .folder:
+            if prefs.requiresWiFi {
+                let wifiAvailable = await NetworkConstraintChecker.isWiFiAvailable()
+                guard wifiAvailable else { return false }
+            }
+        default:
+            break
         }
         return true
     }

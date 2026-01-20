@@ -991,17 +991,17 @@
         "reliability"
       ],
       "files": [
-        "MarginShot/Views/SettingsView.swift",
         "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T22:49:30Z"
+      "updated_at": "2026-01-20T22:56:50Z"
     },
     {
       "id": "T048",
       "title": "Avoid sync errors when offline by gating GitHub sync on network availability",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Before GitHub sync, check for any network (or Wi-Fi if required). When offline, skip the sync attempt and keep status idle rather than marking an error.",
       "tags": [
         "sync",
@@ -1009,8 +1009,10 @@
         "reliability"
       ],
       "files": [
-        "MarginShot/ProcessingQueue.swift"
-      ]
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T22:57:37Z"
     }
   ]
 }
