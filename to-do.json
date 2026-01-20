@@ -588,7 +588,7 @@
       "id": "T028",
       "title": "Add vault export as ZIP",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Provide a Settings action to export the vault as a ZIP via the share sheet.",
       "tags": [
         "export",
@@ -597,6 +597,11 @@
       "depends_on": [
         "T010",
         "T016"
+      ],
+      "updated_at": "2026-01-20T18:28:25Z",
+      "files": [
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
       ]
     },
     {

@@ -112,6 +112,10 @@ struct SettingsView: View {
     @State private var isSigningInToGitHub = false
     @State private var gitHubAuthStatus: String?
     @State private var isPickingGitHubRepo = false
+    @State private var isExportingVaultZip = false
+    @State private var isShowingZipShare = false
+    @State private var vaultZipURL: URL?
+    @State private var vaultZipError: String?
 
     private var syncDestination: Binding<SyncDestination> {
         Binding(
@@ -292,6 +296,18 @@ struct SettingsView: View {
                 Section("Advanced") {
                     Toggle("Review changes before applying", isOn: $advancedReviewBeforeApply)
                     Toggle("Enable ZIP export", isOn: $advancedEnableZipExport)
+                    if advancedEnableZipExport {
+                        Button(isExportingVaultZip ? "Preparing ZIP..." : "Export vault as ZIP") {
+                            exportVaultZip()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isExportingVaultZip)
+                        if let vaultZipError {
+                            Text(vaultZipError)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 } footer: {
                     Text("Extra controls for power users.")
                 }
@@ -329,6 +345,11 @@ struct SettingsView: View {
         .onChange(of: privacySendImagesToLLM) { newValue in
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()
+            }
+        }
+        .onChange(of: advancedEnableZipExport) { newValue in
+            if !newValue {
+                clearVaultZipState()
             }
         }
         .fileImporter(
@@ -375,6 +396,16 @@ struct SettingsView: View {
                     .presentationDetents([.medium])
             }
         }
+        .sheet(isPresented: $isShowingZipShare, onDismiss: {
+            cleanupVaultZip()
+        }) {
+            if let vaultZipURL {
+                ActivityView(activityItems: [vaultZipURL])
+            } else {
+                Text("No ZIP available.")
+                    .presentationDetents([.medium])
+            }
+        }
     }
 
     private var canSaveGeminiAPIKey: Bool {
@@ -384,6 +415,69 @@ struct SettingsView: View {
     private func refreshGeminiAPIKeyStatus() {
         hasGeminiAPIKey = KeychainStore.readString(forKey: KeychainStore.geminiAPIKeyKey) != nil
         geminiAPIKeyStatus = nil
+    }
+
+    private func exportVaultZip() {
+        isExportingVaultZip = true
+        vaultZipError = nil
+        Task {
+            do {
+                let zipURL = try createVaultZip()
+                await MainActor.run {
+                    vaultZipURL = zipURL
+                    isShowingZipShare = true
+                    isExportingVaultZip = false
+                }
+            } catch {
+                await MainActor.run {
+                    vaultZipError = error.localizedDescription
+                    isExportingVaultZip = false
+                }
+            }
+        }
+    }
+
+    private func createVaultZip() throws -> URL {
+        let vaultURL = try vaultRootURL()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: vaultURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw VaultZipExportError.vaultUnavailable
+        }
+        let zipURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(zipFileName(), isDirectory: false)
+        if FileManager.default.fileExists(atPath: zipURL.path) {
+            try FileManager.default.removeItem(at: zipURL)
+        }
+        try FileManager.default.zipItem(at: vaultURL, to: zipURL, shouldKeepParent: true)
+        return zipURL
+    }
+
+    private func zipFileName() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let timestamp = formatter.string(from: Date())
+        return "marginshot-vault-\(timestamp).zip"
+    }
+
+    private func vaultRootURL() throws -> URL {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw VaultZipExportError.vaultUnavailable
+        }
+        return documentsURL.appendingPathComponent("vault", isDirectory: true)
+    }
+
+    private func clearVaultZipState() {
+        vaultZipError = nil
+        cleanupVaultZip()
+    }
+
+    private func cleanupVaultZip() {
+        if let vaultZipURL {
+            try? FileManager.default.removeItem(at: vaultZipURL)
+        }
+        vaultZipURL = nil
+        isShowingZipShare = false
     }
 
     private func saveGeminiAPIKey() {
@@ -514,6 +608,31 @@ struct SettingsView: View {
             }
         }
     }
+
+    private enum VaultZipExportError: LocalizedError {
+        case vaultUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .vaultUnavailable:
+                return "Vault folder not found yet."
+            }
+        }
+    }
+}
+
+struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: activityItems,
+            applicationActivities: applicationActivities
+        )
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 struct GitHubRepoPickerView: View {
