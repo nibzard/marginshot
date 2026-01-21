@@ -1294,7 +1294,38 @@
         "MarginShot/TopicPageStore.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T03:00:46Z"
+      "updated_at": "2026-01-21T03:02:03Z"
+    },
+    {
+      "id": "T064",
+      "title": "Reset batch status when processing is cancelled",
+      "priority": 1,
+      "status": "done",
+      "details": "If background processing is cancelled (for example BGTaskScheduler expiration), processBatch returns early without updating the batch status, leaving it stuck in processing with no retry path. Ensure cancellation restores batch status (queued or blocked) and scan states so the inbox can retry.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ],
+      "updated_at": "2026-01-21T03:18:56Z"
+    },
+    {
+      "id": "T065",
+      "title": "Handle ASWebAuthenticationSession start failures in GitHub OAuth",
+      "priority": 2,
+      "status": "todo",
+      "details": "GitHubOAuthSession.requestAuthorizationCode does not handle ASWebAuthenticationSession.start() returning false, which can leave the continuation unresolved and the UI stuck on Connecting. Return a GitHubOAuthError when start fails.",
+      "tags": [
+        "github",
+        "auth",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/SettingsView.swift"
+      ]
     }
   ]
 }

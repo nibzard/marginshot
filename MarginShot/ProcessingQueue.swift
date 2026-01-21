@@ -1228,8 +1228,12 @@ final class ProcessingQueue {
         let processingContext = ProcessingContextLoader.load(rulesOverrides: batchDetails.rulesOverrides)
 
         var batchSucceeded = true
+        var wasCancelled = false
         for scanID in batchDetails.scanIDs {
-            if Task.isCancelled { return false }
+            if Task.isCancelled {
+                wasCancelled = true
+                break
+            }
             let success = await processScan(
                 objectID: scanID,
                 context: context,
@@ -1240,6 +1244,11 @@ final class ProcessingQueue {
             if !success {
                 batchSucceeded = false
             }
+        }
+
+        if wasCancelled {
+            await resetBatchStatusOnCancellation(objectID: objectID, context: context)
+            return false
         }
 
         let hasScanError = await context.perform {
@@ -1262,6 +1271,21 @@ final class ProcessingQueue {
         }
 
         return batchSucceeded && !hasScanError
+    }
+
+    private func resetBatchStatusOnCancellation(objectID: NSManagedObjectID, context: NSManagedObjectContext) async {
+        await context.perform {
+            guard let batch = try? context.existingObject(with: objectID) as? BatchEntity else { return }
+            batch.status = BatchStatus.queued.rawValue
+            batch.updatedAt = Date()
+            for scan in batch.scans {
+                let status = ScanStatus(rawValue: scan.status)
+                if status == .transcribing || status == .structured {
+                    scan.status = ScanStatus.preprocessing.rawValue
+                }
+            }
+            try? context.save()
+        }
     }
 
     private func processScan(
