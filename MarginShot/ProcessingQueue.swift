@@ -1137,11 +1137,11 @@ final class ProcessingQueue {
         guard prefs.allowsImageUploads else { return true }
         guard await hasRequiredPower() else {
             scheduleBackgroundProcessing()
-            return false
+            return true
         }
         guard await hasRequiredNetwork() else {
             scheduleBackgroundProcessing()
-            return false
+            return true
         }
 
         let context = persistenceController.container.newBackgroundContext()

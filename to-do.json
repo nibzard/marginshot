@@ -1166,26 +1166,31 @@
       "title": "Ensure camera session configuration always commits",
       "priority": 2,
       "status": "done",
-      "details": "CameraController.configureSession calls beginConfiguration but can throw before commitConfiguration, leaving the session in a configuring state. Use defer or explicit error handling to always commit before returning.",
+      "details": "CameraController.configureSession calls beginConfiguration but can throw before commitConfiguration, leaving the session in a configuring state. Use defer or explicit error handling to always commit before returning. Verified the current implementation already uses defer to commit the configuration, so no code changes were required.",
       "tags": [
         "capture",
         "reliability"
       ],
-      "updated_at": "2026-01-21T01:30:53Z",
+      "updated_at": "2026-01-21T01:33:47Z",
       "files": [
-        "MarginShot/Views/CaptureView.swift"
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
       ]
     },
     {
       "id": "T057",
       "title": "Report background processing deferrals as successful",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "ProcessingQueue.processPendingBatches returns false when power/network constraints are unmet, which causes BGTaskScheduler to treat the run as failed. Treat intentional deferrals (and rescheduling) as success to avoid OS backoff.",
       "tags": [
         "processing",
         "background",
         "reliability"
+      ],
+      "updated_at": "2026-01-21T01:45:00Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
       ]
     },
     {
