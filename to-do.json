@@ -1220,12 +1220,31 @@
         "background",
         "config"
       ],
-      "updated_at": "2026-01-21T01:50:46Z",
+      "updated_at": "2026-01-21T01:51:02Z",
       "files": [
         "MarginShot/Info.plist",
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
       ]
+    },
+    {
+      "id": "T060",
+      "title": "Add ApplyReviewView.swift to Xcode target sources",
+      "priority": 1,
+      "status": "done",
+      "details": "ChatView references ApplyReviewSheet, but ApplyReviewView.swift is not listed in project.pbxproj. Add the file to the MarginShot target sources so the app compiles.",
+      "tags": [
+        "build",
+        "xcode",
+        "ui"
+      ],
+      "files": [
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/Views/ApplyReviewView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T02:07:30Z"
     }
   ]
 }

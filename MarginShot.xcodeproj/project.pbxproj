@@ -12,6 +12,7 @@
 		A1B2C3D4E5F6000000000012 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000A /* CaptureView.swift */; };
 		A1B2C3D4E5F6000000000013 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000B /* ChatView.swift */; };
 		A1B2C3D4E5F6000000000014 /* HeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000C /* HeaderView.swift */; };
+		A1B2C3D4E5F6000000000068 /* ApplyReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000069 /* ApplyReviewView.swift */; };
 		A1B2C3D4E5F6000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000D /* Assets.xcassets */; };
 		A1B2C3D4E5F6000000000016 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000000F /* OnboardingView.swift */; };
 		A1B2C3D4E5F6000000000044 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000043 /* SettingsView.swift */; };
@@ -62,6 +63,7 @@
 		A1B2C3D4E5F600000000000A /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000B /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000C /* HeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000069 /* ApplyReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplyReviewView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000F /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -174,6 +176,7 @@
 		A1B2C3D4E5F6000000000004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F6000000000069 /* ApplyReviewView.swift */,
 				A1B2C3D4E5F600000000000A /* CaptureView.swift */,
 				A1B2C3D4E5F600000000000B /* ChatView.swift */,
 				A1B2C3D4E5F600000000000C /* HeaderView.swift */,
@@ -333,6 +336,7 @@
 			files = (
 				A1B2C3D4E5F6000000000010 /* MarginShotApp.swift in Sources */,
 				A1B2C3D4E5F6000000000011 /* ContentView.swift in Sources */,
+				A1B2C3D4E5F6000000000068 /* ApplyReviewView.swift in Sources */,
 				A1B2C3D4E5F6000000000012 /* CaptureView.swift in Sources */,
 				A1B2C3D4E5F6000000000013 /* ChatView.swift in Sources */,
 				A1B2C3D4E5F6000000000014 /* HeaderView.swift in Sources */,
