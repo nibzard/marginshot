@@ -1043,9 +1043,12 @@
         "reliability"
       ],
       "files": [
-        "MarginShotTests/VaultSyncIntegrationTests.swift"
+        "MarginShotTests/VaultSyncIntegrationTests.swift",
+        "MarginShot/OrganizationSettings.swift",
+        "MarginShot/ContentView.swift",
+        "MarginShot/ProcessingQueue.swift"
       ],
-      "updated_at": "2026-01-20T23:54:55Z"
+      "updated_at": 1768953693.597787
     }
   ]
 }

@@ -80,11 +80,11 @@ struct ContentView: View {
 struct VaultBootstrapper {
     private static let vaultFolderName = "vault"
 
-    static func bootstrapIfNeeded() throws {
+    static func bootstrapIfNeeded(userDefaults: UserDefaults = .standard) throws {
         let fileManager = FileManager.default
         let rootURL = try vaultRootURL()
         try createDirectoryIfNeeded(at: rootURL)
-        let style = OrganizationPreferences().style
+        let style = OrganizationPreferences(userDefaults: userDefaults).style
 
         for directory in vaultDirectories(style: style) {
             let directoryURL = rootURL.appendingPathComponent(directory, isDirectory: true)
@@ -94,15 +94,18 @@ struct VaultBootstrapper {
         let systemDirectoryURL = rootURL.appendingPathComponent("_system", isDirectory: true)
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("SYSTEM.md"),
-            contents: SystemRulesStore.defaultRules
+            contents: SystemRulesStore.defaultRules,
+            userDefaults: userDefaults
         )
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("INDEX.json"),
-            contents: defaultIndexJSON
+            contents: defaultIndexJSON,
+            userDefaults: userDefaults
         )
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("STRUCTURE.txt"),
-            contents: defaultStructureText(style: style)
+            contents: defaultStructureText(style: style),
+            userDefaults: userDefaults
         )
     }
 
@@ -122,10 +125,10 @@ struct VaultBootstrapper {
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
     }
 
-    private static func writeFileIfNeeded(at url: URL, contents: String) throws {
+    private static func writeFileIfNeeded(at url: URL, contents: String, userDefaults: UserDefaults = .standard) throws {
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: url.path) else { return }
-        try VaultFileStore.writeText(contents, to: url)
+        try VaultFileStore.writeText(contents, to: url, userDefaults: userDefaults)
     }
 
     private static let defaultIndexJSON = """

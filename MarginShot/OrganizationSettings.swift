@@ -17,8 +17,14 @@ enum OrganizationStyle: String, CaseIterable, Identifiable {
 }
 
 struct OrganizationPreferences {
+    private let userDefaults: UserDefaults
+
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
     var style: OrganizationStyle {
-        if let raw = UserDefaults.standard.string(forKey: "organizationStyle"),
+        if let raw = userDefaults.string(forKey: "organizationStyle"),
            let style = OrganizationStyle(rawValue: raw) {
             return style
         }
@@ -26,11 +32,11 @@ struct OrganizationPreferences {
     }
 
     var linkingEnabled: Bool {
-        UserDefaults.standard.object(forKey: "organizationLinkingEnabled") as? Bool ?? true
+        userDefaults.object(forKey: "organizationLinkingEnabled") as? Bool ?? true
     }
 
     var topicPagesEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "organizationTopicPagesEnabled")
+        userDefaults.bool(forKey: "organizationTopicPagesEnabled")
     }
 }
 

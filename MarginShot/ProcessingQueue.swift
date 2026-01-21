@@ -103,9 +103,9 @@ enum VaultWriter {
         return formatter
     }()
 
-    static func apply(input: VaultWriterInput) throws -> VaultWriteResult {
+    static func apply(input: VaultWriterInput, userDefaults: UserDefaults = .standard) throws -> VaultWriteResult {
         let rootURL = try vaultRootURL()
-        let preferences = OrganizationPreferences()
+        let preferences = OrganizationPreferences(userDefaults: userDefaults)
         let resolved = resolveWikiLinks(for: input, linkingEnabled: preferences.linkingEnabled)
         let style = preferences.style
         let normalizedStructured = try normalizeClassification(resolved.structured, style: style)
@@ -115,7 +115,8 @@ enum VaultWriter {
             structured: normalizedStructured,
             rootURL: rootURL,
             folder: folder,
-            style: style
+            style: style,
+            userDefaults: userDefaults
         )
         let metadataPath = VaultScanStore.metadataPath(for: input.processedImagePath ?? input.imagePath)
         let metadataURL = rootURL.appendingPathComponent(metadataPath)
@@ -138,7 +139,7 @@ enum VaultWriter {
         try writeAtomically(data: metadataData, to: metadataURL)
         let createdEntities: [EntityPage]
         if preferences.linkingEnabled {
-            createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL, style: style)
+            createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL, style: style, userDefaults: userDefaults)
         } else {
             createdEntities = []
         }
@@ -156,7 +157,8 @@ enum VaultWriter {
         structured: StructurePayload,
         rootURL: URL,
         folder: String,
-        style: OrganizationStyle
+        style: OrganizationStyle,
+        userDefaults: UserDefaults = .standard
     ) throws -> (path: String, title: String) {
         let directoryURL = rootURL.appendingPathComponent(folder, isDirectory: true)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
@@ -167,8 +169,8 @@ enum VaultWriter {
             let notePath = "\(folder)/\(fileName)"
             let noteURL = rootURL.appendingPathComponent(notePath)
             let entry = buildDailyEntry(input: input, structured: structured)
-            let updated = try appendDailyEntry(existingAt: noteURL, dateString: dateString, entry: entry)
-            try writeAtomically(text: updated, to: noteURL)
+            let updated = try appendDailyEntry(existingAt: noteURL, dateString: dateString, entry: entry, userDefaults: userDefaults)
+            try writeAtomically(text: updated, to: noteURL, userDefaults: userDefaults)
             return (notePath, dateString)
         }
 
@@ -177,7 +179,7 @@ enum VaultWriter {
         let notePath = "\(folder)/\(fileName)"
         let noteURL = rootURL.appendingPathComponent(notePath)
         let content = buildNoteContent(input: input, structured: structured)
-        try writeAtomically(text: content, to: noteURL)
+        try writeAtomically(text: content, to: noteURL, userDefaults: userDefaults)
         return (notePath, structured.noteMeta.title)
     }
 
@@ -199,8 +201,8 @@ enum VaultWriter {
         return entry.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func appendDailyEntry(existingAt url: URL, dateString: String, entry: String) throws -> String {
-        let existing = (try? VaultFileStore.readText(from: url)) ?? ""
+    private static func appendDailyEntry(existingAt url: URL, dateString: String, entry: String, userDefaults: UserDefaults = .standard) throws -> String {
+        let existing = (try? VaultFileStore.readText(from: url, userDefaults: userDefaults)) ?? ""
         if existing.isEmpty {
             return "# \(dateString)\n\n\(entry)\n"
         }
@@ -404,10 +406,11 @@ enum VaultWriter {
     private static func ensureEntityPages(
         links: [String],
         rootURL: URL,
-        style: OrganizationStyle
+        style: OrganizationStyle,
+        userDefaults: UserDefaults = .standard
     ) throws -> [EntityPage] {
         guard !links.isEmpty else { return [] }
-        let existingKeys = loadExistingLinkKeys(rootURL: rootURL)
+        let existingKeys = loadExistingLinkKeys(rootURL: rootURL, userDefaults: userDefaults)
         var seenKeys = existingKeys
         var created: [EntityPage] = []
 
@@ -427,16 +430,16 @@ enum VaultWriter {
                 continue
             }
             let content = buildEntityPageContent(title: title)
-            try writeAtomically(text: content, to: targetURL)
+            try writeAtomically(text: content, to: targetURL, userDefaults: userDefaults)
             let path = "\(entityFolder)/\(fileName)"
             created.append(EntityPage(path: path, title: title))
         }
         return created
     }
 
-    private static func loadExistingLinkKeys(rootURL: URL) -> Set<String> {
+    private static func loadExistingLinkKeys(rootURL: URL, userDefaults: UserDefaults = .standard) -> Set<String> {
         let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-        guard let data = try? VaultFileStore.readData(from: indexURL),
+        guard let data = try? VaultFileStore.readData(from: indexURL, userDefaults: userDefaults),
               let snapshot = try? JSONDecoder().decode(IndexSnapshot.self, from: data) else {
             return []
         }
@@ -486,8 +489,8 @@ enum VaultWriter {
         return documentsURL.appendingPathComponent("vault", isDirectory: true)
     }
 
-    private static func writeAtomically(text: String, to url: URL) throws {
-        try VaultFileStore.writeText(text, to: url)
+    private static func writeAtomically(text: String, to url: URL, userDefaults: UserDefaults = .standard) throws {
+        try VaultFileStore.writeText(text, to: url, userDefaults: userDefaults)
     }
 
     private static func writeAtomically(data: Data, to url: URL) throws {
@@ -748,7 +751,7 @@ enum VaultApplyService {
         let backupURL: URL?
     }
 
-    static func apply(_ operations: [VaultFileOperation]) async throws -> VaultApplySummary {
+    static func apply(_ operations: [VaultFileOperation], userDefaults: UserDefaults = .standard) async throws -> VaultApplySummary {
         let sanitized = try sanitizeOperations(operations)
         guard !sanitized.isEmpty else { throw VaultApplyError.emptyOperations }
         let rootURL = try vaultRootURL()
@@ -843,7 +846,7 @@ enum VaultApplyService {
                         attributes: nil
                     )
                     let data = try Data(contentsOf: stagedURL)
-                    try VaultFileStore.writeData(data, to: item.targetURL)
+                    try VaultFileStore.writeData(data, to: item.targetURL, userDefaults: userDefaults)
                 }
                 applied.append(item)
             }
@@ -852,7 +855,7 @@ enum VaultApplyService {
             throw VaultApplyError.applyFailed(error.localizedDescription)
         }
 
-        await updateIndex(for: prepared)
+        await updateIndex(for: prepared, userDefaults: userDefaults)
         return VaultApplySummary(
             createdOrUpdated: prepared.filter { $0.operation.action != .delete }.map { $0.path },
             deleted: prepared.filter { $0.operation.action == .delete }.map { $0.path }
@@ -927,7 +930,7 @@ enum VaultApplyService {
         }
     }
 
-    private static func updateIndex(for operations: [PreparedOperation]) async {
+    private static func updateIndex(for operations: [PreparedOperation], userDefaults: UserDefaults = .standard) async {
         for item in operations {
             switch item.operation.action {
             case .delete:
@@ -1618,15 +1621,15 @@ private enum SyncManifestStore {
     private static let folderManifestPrefix = "sync.folder.manifest."
     private static let gitHubManifestPrefix = "sync.github.manifest."
 
-    static func loadFolderManifest(for destinationURL: URL) -> Set<String> {
+    static func loadFolderManifest(for destinationURL: URL, userDefaults: UserDefaults = .standard) -> Set<String> {
         let key = folderManifestKey(for: destinationURL)
-        let items = UserDefaults.standard.stringArray(forKey: key) ?? []
+        let items = userDefaults.stringArray(forKey: key) ?? []
         return Set(items)
     }
 
-    static func saveFolderManifest(_ manifest: Set<String>, for destinationURL: URL) {
+    static func saveFolderManifest(_ manifest: Set<String>, for destinationURL: URL, userDefaults: UserDefaults = .standard) {
         let key = folderManifestKey(for: destinationURL)
-        UserDefaults.standard.set(manifest.sorted(), forKey: key)
+        userDefaults.set(manifest.sorted(), forKey: key)
     }
 
     static func loadGitHubManifest(selection: GitHubRepoSelection) -> Set<String> {
@@ -1656,7 +1659,7 @@ enum FolderSyncError: Error {
 enum FolderSyncer {
     private static let fileManager = FileManager.default
 
-    static func syncVault(to destinationURL: URL) throws {
+    static func syncVault(to destinationURL: URL, userDefaults: UserDefaults = .standard) throws {
         let vaultURL = try vaultRootURL()
         let didAccess = destinationURL.startAccessingSecurityScopedResource()
         defer {
@@ -1664,11 +1667,11 @@ enum FolderSyncer {
                 destinationURL.stopAccessingSecurityScopedResource()
             }
         }
-        let previousManifest = SyncManifestStore.loadFolderManifest(for: destinationURL)
-        let currentManifest = try syncDirectory(from: vaultURL, to: destinationURL)
+        let previousManifest = SyncManifestStore.loadFolderManifest(for: destinationURL, userDefaults: userDefaults)
+        let currentManifest = try syncDirectory(from: vaultURL, to: destinationURL, userDefaults: userDefaults)
         let removed = previousManifest.subtracting(currentManifest)
         try deleteRemovedFiles(removed, in: destinationURL)
-        SyncManifestStore.saveFolderManifest(currentManifest, for: destinationURL)
+        SyncManifestStore.saveFolderManifest(currentManifest, for: destinationURL, userDefaults: userDefaults)
     }
 
     private static func vaultRootURL() throws -> URL {
@@ -1679,7 +1682,7 @@ enum FolderSyncer {
     }
 
     @discardableResult
-    private static func syncDirectory(from sourceURL: URL, to destinationURL: URL) throws -> Set<String> {
+    private static func syncDirectory(from sourceURL: URL, to destinationURL: URL, userDefaults: UserDefaults = .standard) throws -> Set<String> {
         try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]
         guard let enumerator = fileManager.enumerator(
@@ -1701,7 +1704,7 @@ enum FolderSyncer {
                 continue
             }
 
-            if try shouldCopyFile(from: fileURL, to: targetURL) {
+            if try shouldCopyFile(from: fileURL, to: targetURL, userDefaults: userDefaults) {
                 let parent = targetURL.deletingLastPathComponent()
                 try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
                 try replaceItem(at: targetURL, with: fileURL)
@@ -1769,7 +1772,7 @@ enum FolderSyncer {
         return relative
     }
 
-    private static func shouldCopyFile(from sourceURL: URL, to destinationURL: URL) throws -> Bool {
+    private static func shouldCopyFile(from sourceURL: URL, to destinationURL: URL, userDefaults: UserDefaults = .standard) throws -> Bool {
         guard fileManager.fileExists(atPath: destinationURL.path) else {
             return true
         }

@@ -2,30 +2,29 @@ import XCTest
 @testable import MarginShot
 
 final class VaultSyncIntegrationTests: XCTestCase {
-    private let defaults = UserDefaults.standard
-    private let testDefaults: [String: Any] = [
-        "organizationStyle": "simple",
-        "organizationLinkingEnabled": true,
-        "organizationTopicPagesEnabled": false,
-        "privacyLocalEncryptionEnabled": false
-    ]
+    // Use a test-specific UserDefaults instance to avoid conflicts with app settings
+    private let testDefaults: UserDefaults = {
+        let userDefaults = UserDefaults(suiteName: "com.marginshot.tests")!
+        userDefaults.set("simple", forKey: "organizationStyle")
+        userDefaults.set(true, forKey: "organizationLinkingEnabled")
+        userDefaults.set(false, forKey: "organizationTopicPagesEnabled")
+        userDefaults.set(false, forKey: "privacyLocalEncryptionEnabled")
+        return userDefaults
+    }()
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        // Set known defaults for test independence
-        for (key, value) in testDefaults {
-            defaults.set(value, forKey: key)
-        }
         try TestVaultHelper.resetVault()
-        try VaultBootstrapper.bootstrapIfNeeded()
+        try VaultBootstrapper.bootstrapIfNeeded(userDefaults: testDefaults)
     }
 
     override func tearDownWithError() throws {
         try TestVaultHelper.resetVault()
         // Clear test defaults
-        for key in testDefaults.keys {
-            defaults.removeObject(forKey: key)
-        }
+        testDefaults.removeObject(forKey: "organizationStyle")
+        testDefaults.removeObject(forKey: "organizationLinkingEnabled")
+        testDefaults.removeObject(forKey: "organizationTopicPagesEnabled")
+        testDefaults.removeObject(forKey: "privacyLocalEncryptionEnabled")
         try super.tearDownWithError()
     }
 
@@ -59,7 +58,7 @@ final class VaultSyncIntegrationTests: XCTestCase {
             structuredJSON: "{\"markdown\":\"# Entry\"}"
         )
 
-        let result = try VaultWriter.apply(input: input)
+        let result = try VaultWriter.apply(input: input, userDefaults: testDefaults)
         let rootURL = try TestVaultHelper.vaultRootURL()
         let noteURL = rootURL.appendingPathComponent(result.notePath)
         let metadataURL = rootURL.appendingPathComponent(result.metadataPath)
@@ -70,7 +69,7 @@ final class VaultSyncIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: metadataURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: entityURL.path))
 
-        let noteContents = try VaultFileStore.readText(from: noteURL)
+        let noteContents = try VaultFileStore.readText(from: noteURL, userDefaults: testDefaults)
         XCTAssertTrue(noteContents.contains("Raw transcription"))
     }
 
@@ -83,12 +82,12 @@ final class VaultSyncIntegrationTests: XCTestCase {
             noteMeta: nil
         )
 
-        let summary = try await VaultApplyService.apply([operation])
+        let summary = try await VaultApplyService.apply([operation], userDefaults: testDefaults)
         let rootURL = try TestVaultHelper.vaultRootURL()
         let noteURL = rootURL.appendingPathComponent("01_daily/qa-note.md")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: noteURL.path))
-        XCTAssertEqual(try VaultFileStore.readText(from: noteURL), content)
+        XCTAssertEqual(try VaultFileStore.readText(from: noteURL, userDefaults: testDefaults), content)
         XCTAssertEqual(summary.createdOrUpdated, ["01_daily/qa-note.md"])
         XCTAssertTrue(summary.deleted.isEmpty)
     }
@@ -102,11 +101,12 @@ final class VaultSyncIntegrationTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: destinationURL) }
 
-        try FolderSyncer.syncVault(to: destinationURL)
+        try FolderSyncer.syncVault(to: destinationURL, userDefaults: testDefaults)
 
         let copiedURL = destinationURL.appendingPathComponent("01_daily/sync-test.md")
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedURL.path))
-        XCTAssertEqual(try VaultFileStore.readText(from: copiedURL), "sync")
+        // FolderSyncer copies raw files (not via VaultFileStore), so read with testDefaults
+        XCTAssertEqual(try VaultFileStore.readText(from: copiedURL, userDefaults: testDefaults), "sync")
     }
 }
 
