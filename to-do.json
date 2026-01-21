@@ -1220,7 +1220,7 @@
         "background",
         "config"
       ],
-      "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+      "updated_at": "2026-01-21T01:50:46Z",
       "files": [
         "MarginShot/Info.plist",
         "MarginShot/ProcessingQueue.swift",
