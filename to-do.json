@@ -1332,10 +1332,10 @@
     {
       "status": "done",
       "details": "Implemented by deferring batch queueing until preprocessing completes. The batch status is now only set to queued after all preprocessing finishes, preventing the processing queue from starting before processed images are available.",
-      "updated_at": "2026-01-21T03:44:07Z",
+      "updated_at": "2026-01-21T03:44:54Z",
       "files": [
-        "MarginShot/Views/CaptureView.swift",
-        "MarginShot/ProcessingQueue.swift"
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/CaptureView.swift"
       ],
       "id": "T066",
       "title": "Prevent retryBatch preprocessing from racing processing queue",
@@ -1362,7 +1362,23 @@
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T03:49:29Z"
+      "updated_at": "2026-01-21T03:52:11Z"
+    },
+    {
+      "id": "T068",
+      "title": "Queue the correct batch after retry preprocessing",
+      "priority": 1,
+      "status": "done",
+      "details": "CaptureViewModel.retryBatch queues the current capture batch instead of the batch being retried because it uses currentBatchObjectID and compares it to BatchEntity.id (UUID). Capture the retried batch's objectID or id before starting async work and update that batch when preprocessing completes.",
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift"
+      ],
+      "updated_at": "2026-01-21T07:19:10Z"
     }
   ]
 }

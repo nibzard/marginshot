@@ -1004,6 +1004,9 @@ final class CaptureViewModel: ObservableObject {
             return
         }
 
+        // Capture the batch identifier before starting async work
+        let retriedBatchID = batch.id
+
         let pendingScans = batch.scans.filter { ScanStatus(rawValue: $0.status) != .filed }
         guard !pendingScans.isEmpty else { return }
 
@@ -1069,10 +1072,11 @@ final class CaptureViewModel: ObservableObject {
             await MainActor.run {
                 guard let self else { return }
                 // Only queue the batch after preprocessing completes
+                // Use the captured batch ID, not currentBatchObjectID
                 if let context = self.context {
                     let request = BatchEntity.fetchRequest()
                     request.fetchLimit = 1
-                    request.predicate = NSPredicate(format: "id == %@", self.currentBatchObjectID as Any)
+                    request.predicate = NSPredicate(format: "id == %@", retriedBatchID as CVarArg)
                     if let batch = try? context.fetch(request).first {
                         batch.status = BatchStatus.queued.rawValue
                         batch.updatedAt = Date()
