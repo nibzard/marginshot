@@ -1385,7 +1385,7 @@
       "id": "T069",
       "title": "Revalidate sync status after clearing GitHub repository selection",
       "priority": 3,
-      "status": "done",
+      "status": "doing",
       "details": "Implemented by calling syncStatus.validateConfiguration() after clearing GitHub repository values in clearGitHubRepoSelection(). This ensures the sync status immediately reflects the missing repository error in the header when the repository is cleared.",
       "tags": [
         "sync",
@@ -1396,7 +1396,7 @@
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T08:33:08Z"
+      "updated_at": "2026-01-21T09:07:24Z"
     },
     {
       "id": "T070",
