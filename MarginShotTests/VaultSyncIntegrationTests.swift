@@ -2,29 +2,32 @@ import XCTest
 @testable import MarginShot
 
 final class VaultSyncIntegrationTests: XCTestCase {
-    // Use a test-specific UserDefaults instance to avoid conflicts with app settings
-    private let testDefaults: UserDefaults = {
-        let userDefaults = UserDefaults(suiteName: "com.marginshot.tests")!
-        userDefaults.set("simple", forKey: "organizationStyle")
-        userDefaults.set(true, forKey: "organizationLinkingEnabled")
-        userDefaults.set(false, forKey: "organizationTopicPagesEnabled")
-        userDefaults.set(false, forKey: "privacyLocalEncryptionEnabled")
-        return userDefaults
-    }()
+    // Use test-specific defaults and override standard defaults for deterministic test output.
+    private static let testDefaultsSuiteName = "com.marginshot.tests"
+    private static let defaultOverrides: [String: Any] = [
+        "organizationStyle": OrganizationStyle.johnnyDecimal.rawValue,
+        "organizationLinkingEnabled": true,
+        "organizationTopicPagesEnabled": false,
+        "organizationTaskExtractionEnabled": false,
+        "privacyLocalEncryptionEnabled": false
+    ]
+
+    private let testDefaults = UserDefaults(suiteName: VaultSyncIntegrationTests.testDefaultsSuiteName)!
+    private var standardDefaultsSnapshot: [String: Any] = [:]
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        snapshotStandardDefaults()
+        applyOverrides(to: UserDefaults.standard)
+        applyTestDefaults()
         try TestVaultHelper.resetVault()
         try VaultBootstrapper.bootstrapIfNeeded(userDefaults: testDefaults)
     }
 
     override func tearDownWithError() throws {
         try TestVaultHelper.resetVault()
-        // Clear test defaults
-        testDefaults.removeObject(forKey: "organizationStyle")
-        testDefaults.removeObject(forKey: "organizationLinkingEnabled")
-        testDefaults.removeObject(forKey: "organizationTopicPagesEnabled")
-        testDefaults.removeObject(forKey: "privacyLocalEncryptionEnabled")
+        restoreStandardDefaults()
+        clearTestDefaults()
         try super.tearDownWithError()
     }
 
@@ -107,6 +110,39 @@ final class VaultSyncIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedURL.path))
         // FolderSyncer copies raw files (not via VaultFileStore), so read with testDefaults
         XCTAssertEqual(try VaultFileStore.readText(from: copiedURL, userDefaults: testDefaults), "sync")
+    }
+
+    private func snapshotStandardDefaults() {
+        standardDefaultsSnapshot = [:]
+        for key in Self.defaultOverrides.keys {
+            standardDefaultsSnapshot[key] = UserDefaults.standard.object(forKey: key) ?? NSNull()
+        }
+    }
+
+    private func restoreStandardDefaults() {
+        for (key, value) in standardDefaultsSnapshot {
+            if value is NSNull {
+                UserDefaults.standard.removeObject(forKey: key)
+            } else {
+                UserDefaults.standard.set(value, forKey: key)
+            }
+        }
+        standardDefaultsSnapshot.removeAll()
+    }
+
+    private func applyTestDefaults() {
+        testDefaults.removePersistentDomain(forName: Self.testDefaultsSuiteName)
+        applyOverrides(to: testDefaults)
+    }
+
+    private func clearTestDefaults() {
+        testDefaults.removePersistentDomain(forName: Self.testDefaultsSuiteName)
+    }
+
+    private func applyOverrides(to userDefaults: UserDefaults) {
+        for (key, value) in Self.defaultOverrides {
+            userDefaults.set(value, forKey: key)
+        }
     }
 }
 
