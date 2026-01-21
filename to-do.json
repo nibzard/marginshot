@@ -1182,26 +1182,32 @@
       "title": "Report background processing deferrals as successful",
       "priority": 2,
       "status": "done",
-      "details": "ProcessingQueue.processPendingBatches returns false when power/network constraints are unmet, which causes BGTaskScheduler to treat the run as failed. Treat intentional deferrals (and rescheduling) as success to avoid OS backoff.",
+      "details": "ProcessingQueue.processPendingBatches already treats power/network deferrals as successful by rescheduling and returning true, so BGTaskScheduler avoids failure backoff; no code changes required.",
       "tags": [
         "processing",
         "background",
         "reliability"
       ],
-      "updated_at": "2026-01-21T01:36:06Z",
+      "updated_at": "2026-01-21T01:39:38Z",
       "files": [
-        "MarginShot/ProcessingQueue.swift"
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ]
     },
     {
       "id": "T058",
       "title": "Add batch mode toggle to Capture UI",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "The Capture UI shows Batch: On but there is no toggle to disable batching. Add a batch mode switch so users can auto-finish after each scan when batch mode is off.",
       "tags": [
         "ui",
         "capture"
+      ],
+      "updated_at": "2026-01-21T01:41:56Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
       ]
     },
     {

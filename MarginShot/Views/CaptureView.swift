@@ -11,6 +11,7 @@ struct CaptureView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("selectedNotebookId") private var selectedNotebookIdRaw = ""
+    @AppStorage("batchModeEnabled") private var batchModeEnabled = true
     @StateObject private var viewModel = CaptureViewModel()
     @State private var hasBoundContext = false
     @FetchRequest(
@@ -129,6 +130,14 @@ struct CaptureView: View {
             viewModel.ensureDefaultNotebookIfNeeded()
             refreshNotebookSelection()
             viewModel.startSessionIfPossible()
+            viewModel.batchModeEnabled = batchModeEnabled
+            viewModel.onBatchAutoFinished = { batchId in
+                completedBatchId = batchId
+                isBatchPromptPresented = true
+            }
+        }
+        .onChange(of: batchModeEnabled) { _ in
+            viewModel.batchModeEnabled = batchModeEnabled
         }
         .onChange(of: scenePhase) { phase in
             viewModel.handleScenePhase(phase)
@@ -268,8 +277,14 @@ struct CaptureView: View {
             .disabled(!viewModel.canCapture)
 
             HStack(spacing: 12) {
-                Text("Batch: On")
-                Text("Scans: \(viewModel.scanCount)")
+                Toggle("", isOn: $batchModeEnabled)
+                    .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle(tint: .white))
+                    .scaleEffect(0.8)
+                Text(batchModeEnabled ? "Batch" : "Single")
+                if !batchModeEnabled || viewModel.scanCount > 0 {
+                    Text("Scans: \(viewModel.scanCount)")
+                }
                 if viewModel.scanCount > 0 {
                     Button("Finish") {
                         if let batchId = viewModel.finishBatch() {
@@ -605,6 +620,8 @@ final class CaptureViewModel: ObservableObject {
     @Published var permissionState: CameraPermissionState = .notDetermined
     @Published var detectedQuad: DocumentQuad?
     @Published var selectedNotebookID: UUID?
+    var batchModeEnabled: Bool = true
+    var onBatchAutoFinished: ((UUID) -> Void)?
 
     let cameraController: CameraController
 
@@ -830,6 +847,13 @@ final class CaptureViewModel: ObservableObject {
                         )
                         self.statusText = "Saved scan \(nextIndex)"
                         self.isProcessing = false
+
+                        // Auto-finish batch when batch mode is disabled
+                        if !self.batchModeEnabled {
+                            if let batchId = self.finishBatch() {
+                                self.onBatchAutoFinished?(batchId)
+                            }
+                        }
                     }
                 } catch {
                     await MainActor.run {
