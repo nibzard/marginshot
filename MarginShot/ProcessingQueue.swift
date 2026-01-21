@@ -6,7 +6,11 @@ import UIKit
 
 struct ProcessingPreferences {
     var autoProcessInbox: Bool {
-        UserDefaults.standard.object(forKey: "processingAutoProcessInbox") as? Bool ?? true
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "processingAutoProcessInbox") == nil {
+            return true
+        }
+        return defaults.bool(forKey: "processingAutoProcessInbox")
     }
 
     var requiresWiFi: Bool {
