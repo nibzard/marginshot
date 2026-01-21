@@ -18,9 +18,9 @@
 		</dict>
 	</array>
 	<key>GitHubClientID</key>
-	<string></string>
+	<string>$(GITHUB_CLIENT_ID)</string>
 	<key>GitHubRedirectURI</key>
-	<string>marginshot://github-auth</string>
+	<string>$(GITHUB_REDIRECT_URI)</string>
 	<key>GeminiAPIKey</key>
 	<string></string>
 	<key>GeminiModelName</key>

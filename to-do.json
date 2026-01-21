@@ -1096,7 +1096,7 @@
         "processing",
         "reliability"
       ],
-      "updated_at": "2026-01-21T00:54:09Z",
+      "updated_at": "2026-01-21T00:54:43Z",
       "files": [
         "MarginShot/ProcessingQueue.swift",
         "to-do.json"
@@ -1118,12 +1118,23 @@
       "id": "T055",
       "title": "Supply GitHub OAuth client ID/redirect URI via build config",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "GitHubClientID in Info.plist is empty, so GitHub sign-in always fails. Inject client ID/redirect URI from xcconfig or environment and document setup.",
       "tags": [
         "github",
         "auth",
         "config"
+      ],
+      "updated_at": "2026-01-21T00:57:21Z",
+      "files": [
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot.xcodeproj/Configuration.xcconfig",
+        "MarginShot.xcodeproj/Configuration.xcconfig.template",
+        "MarginShot/Info.plist",
+        "MarginShot/Views/SettingsView.swift",
+        ".gitignore",
+        "BUILD_CONFIG.md",
+        "to-do.json"
       ]
     }
   ]

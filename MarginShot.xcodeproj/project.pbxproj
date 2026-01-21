@@ -58,6 +58,7 @@
 		A1B2C3D4E5F6000000000007 /* MarginShot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = MarginShot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F6000000000008 /* MarginShotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarginShotApp.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000009 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		CONFIG_XCCONFIG /* Configuration.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration.xcconfig; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000A /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000B /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000000C /* HeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderView.swift; sourceTree = "<group>"; };
@@ -443,6 +444,7 @@
 		};
 		A1B2C3D4E5F6000000000040 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = CONFIG_XCCONFIG /* Configuration.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -470,6 +472,7 @@
 		};
 		A1B2C3D4E5F6000000000041 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = CONFIG_XCCONFIG /* Configuration.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;

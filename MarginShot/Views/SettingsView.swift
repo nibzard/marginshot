@@ -824,12 +824,19 @@ struct GitHubOAuthConfiguration {
             throw GitHubOAuthError.missingClientID
         }
         let clientID = rawClientID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clientID.isEmpty, clientID != "REPLACE_ME" else {
+        guard !clientID.isEmpty, clientID != "REPLACE_ME", clientID != "YOUR_GITHUB_CLIENT_ID" else {
             throw GitHubOAuthError.missingClientID
         }
-        guard let redirectURI = Bundle.main.object(forInfoDictionaryKey: "GitHubRedirectURI") as? String else {
-            throw GitHubOAuthError.missingRedirectURI
+
+        // Use default redirect URI if not provided in build config
+        let defaultRedirectURI = "marginshot://github-auth"
+        let redirectURI: String
+        if let rawRedirectURI = Bundle.main.object(forInfoDictionaryKey: "GitHubRedirectURI") as? String, !rawRedirectURI.isEmpty {
+            redirectURI = rawRedirectURI
+        } else {
+            redirectURI = defaultRedirectURI
         }
+
         guard let redirectURL = URL(string: redirectURI), let scheme = redirectURL.scheme else {
             throw GitHubOAuthError.invalidRedirectURI
         }
