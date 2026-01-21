@@ -1386,7 +1386,7 @@
       "title": "Revalidate sync status after clearing GitHub repository selection",
       "priority": 3,
       "status": "done",
-      "details": "Clear Repository only resets stored repo values; SyncStatusStore.validateConfiguration is not called, so the header can stay idle even though the repo is missing. Trigger validation after clearing so the missing-repository error is shown immediately.",
+      "details": "Implemented by calling syncStatus.validateConfiguration() after clearing GitHub repository values in clearGitHubRepoSelection(). This ensures the sync status immediately reflects the missing repository error in the header when the repository is cleared.",
       "tags": [
         "sync",
         "ui",
@@ -1396,7 +1396,7 @@
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T08:15:05Z"
+      "updated_at": "2026-01-21T08:17:02Z"
     },
     {
       "id": "T070",
