@@ -1017,6 +1017,7 @@ final class ProcessingQueue {
     }
 
     func enqueueOpenBatches() {
+        guard preferences.autoProcessInbox else { return }
         let context = persistenceController.container.newBackgroundContext()
         let openBatchIDs: [NSManagedObjectID] = context.performAndWait {
             let request = BatchEntity.fetchRequest()
