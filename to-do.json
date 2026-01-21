@@ -1066,13 +1066,13 @@
         "MarginShot/Views/CaptureView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T00:30:16Z"
+      "updated_at": "2026-01-21T00:30:52Z"
     },
     {
       "id": "T052",
       "title": "Avoid decrypted temp file name collisions for different vault paths",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "VaultFileStore.decryptedCopyURL uses a sanitized filename derived from the relative path. Different paths can sanitize to the same name (for example, foo/bar.md and foo_bar.md), which can overwrite decrypted files and open the wrong content. Include a path hash or preserve directory components in the temp filename to keep decrypted copies unique.",
       "tags": [
         "security",
@@ -1080,8 +1080,10 @@
         "chat"
       ],
       "files": [
-        "MarginShot/VaultFileStore.swift"
-      ]
+        "MarginShot/VaultFileStore.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T00:32:28Z"
     }
   ]
 }
