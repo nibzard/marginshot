@@ -1251,15 +1251,49 @@
       "title": "Exclude local search index files from sync destinations",
       "priority": 3,
       "status": "done",
-      "details": "Folder/GitHub sync currently includes _system/search.sqlite (+ wal/shm), which is derived and churns on every update. Skip these files when building sync manifests/copy lists to reduce upload size and noise.",
+      "details": "Folder/GitHub sync currently includes _system/search.sqlite (+ wal/shm), which is derived and churns on every update. Skip these files when building sync manifests/copy lists to reduce upload size and noise. Verified FolderSyncer and GitHubSyncer already exclude _system/search.sqlite, _system/search.sqlite-wal, and _system/search.sqlite-shm; no code changes were required.",
       "tags": [
         "sync",
         "performance"
       ],
       "files": [
-        "MarginShot/ProcessingQueue.swift"
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-21T02:38:25Z"
+      "updated_at": "2026-01-21T02:41:05Z"
+    },
+    {
+      "id": "T062",
+      "title": "Validate sync configuration and clear stale errors on destination changes",
+      "priority": 2,
+      "status": "done",
+      "details": "SyncStatusStore.refreshDestination only sets the destination, so switching from GitHub to Folder (or launching with missing tokens/repo/folder) can leave stale error/idle states. Centralize validation to set or clear sync errors based on current destination and config so the header reflects reality without opening Settings.",
+      "tags": [
+        "sync",
+        "ui",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/SyncStatusStore.swift",
+        "MarginShot/Views/SettingsView.swift"
+      ],
+      "updated_at": "2026-01-21T02:56:37Z"
+    },
+    {
+      "id": "T063",
+      "title": "Prune auto-generated topic pages when tags are removed",
+      "priority": 3,
+      "status": "todo",
+      "details": "TopicPageStore.refreshIfEnabled only creates/updates topic pages. Remove auto-marked topic files that are no longer in the generated tag set while preserving user-authored pages.",
+      "tags": [
+        "topics",
+        "vault",
+        "maintenance"
+      ],
+      "files": [
+        "MarginShot/TopicPageStore.swift"
+      ],
+      "updated_at": "2026-01-21T02:53:29Z"
     }
   ]
 }

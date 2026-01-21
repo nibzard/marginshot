@@ -183,7 +183,7 @@ struct SettingsView: View {
                                 Button("Clear Folder") {
                                     syncFolderBookmark = Data()
                                     syncFolderDisplayName = ""
-                                    syncStatus.markError("Select a folder in Settings to enable sync.")
+                                    syncStatus.validateConfiguration()
                                 }
                             }
                         }
@@ -336,17 +336,9 @@ struct SettingsView: View {
         .onChange(of: syncDestinationRaw) { newValue in
             let resolved = SyncDestination(rawValue: newValue) ?? .off
             syncStatus.updateDestination(resolved)
-            if resolved == .folder, syncFolderDisplayName.isEmpty {
-                syncStatus.markError("Select a folder in Settings to enable sync.")
-            }
+            syncStatus.validateConfiguration()
             if resolved == .github {
-                let hasToken = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) != nil
-                hasGitHubToken = hasToken
-                if !hasToken {
-                    syncStatus.markError("Connect GitHub in Settings to enable sync.")
-                } else if !hasSelectedGitHubRepo {
-                    syncStatus.markError("Select a GitHub repository in Settings to enable sync.")
-                }
+                hasGitHubToken = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) != nil
             }
         }
         .onChange(of: autoProcessInbox) { newValue in
@@ -392,7 +384,7 @@ struct SettingsView: View {
                     )
                     syncFolderBookmark = bookmark
                     syncFolderDisplayName = url.lastPathComponent
-                    syncStatus.clearError()
+                    syncStatus.validateConfiguration()
                 } catch {
                     print("Failed to store sync folder bookmark: \(error)")
                 }
@@ -592,15 +584,8 @@ struct SettingsView: View {
 
     private func updateGitHubSyncErrorIfNeeded() {
         guard syncDestination.wrappedValue == .github else { return }
-        let hasToken = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) != nil
-        hasGitHubToken = hasToken
-        if !hasToken {
-            syncStatus.markError("Connect GitHub in Settings to enable sync.")
-        } else if !hasSelectedGitHubRepo {
-            syncStatus.markError("Select a GitHub repository in Settings to enable sync.")
-        } else {
-            syncStatus.clearError()
-        }
+        hasGitHubToken = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) != nil
+        syncStatus.validateConfiguration()
     }
 
     @MainActor
