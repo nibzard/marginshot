@@ -26,7 +26,7 @@
 	<key>GitHubRedirectURI</key>
 	<string>marginshot://github-auth</string>
 	<key>GeminiAPIKey</key>
-	<string>==REDACTED==</string>
+	<string>$(GEMINI_API_KEY)</string>
 	<key>GeminiModelName</key>
 	<string>gemini-3-flash-preview</string>
 	<key>GeminiBaseURL</key>

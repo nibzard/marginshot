@@ -93,6 +93,8 @@ iOSInjectionProject/
 
 # Configuration files with sensitive data
 MarginShot.xcodeproj/Configuration.xcconfig
+MarginShot.xcodeproj/Secrets.xcconfig
 
-# but keep the template
+# but keep the templates
 !MarginShot.xcodeproj/Configuration.xcconfig.template
+!MarginShot.xcodeproj/Secrets.xcconfig.template
