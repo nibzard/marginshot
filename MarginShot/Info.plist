@@ -33,7 +33,7 @@
     <string>Allow photo access to import existing pages.</string>
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
-        <string>com.example.MarginShot.processing</string>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).processing</string>
     </array>
     <key>UIBackgroundModes</key>
     <array>

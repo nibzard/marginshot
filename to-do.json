@@ -1199,12 +1199,12 @@
       "title": "Add batch mode toggle to Capture UI",
       "priority": 3,
       "status": "done",
-      "details": "The Capture UI shows Batch: On but there is no toggle to disable batching. Add a batch mode switch so users can auto-finish after each scan when batch mode is off.",
+      "details": "The Capture UI shows Batch: On but there is no toggle to disable batching. Add a batch mode switch so users can auto-finish after each scan when batch mode is off. Verified CaptureView already includes a batch mode toggle and auto-finish; no code changes required.",
       "tags": [
         "ui",
         "capture"
       ],
-      "updated_at": "2026-01-21T01:43:33Z",
+      "updated_at": "2026-01-21T01:48:10Z",
       "files": [
         "MarginShot/Views/CaptureView.swift",
         "to-do.json"
@@ -1214,11 +1214,17 @@
       "id": "T059",
       "title": "Derive BGTask identifier from bundle ID",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "BGTaskSchedulerPermittedIdentifiers and ProcessingQueue.taskIdentifier are hard-coded to com.example.MarginShot.processing. Use $(PRODUCT_BUNDLE_IDENTIFIER) or Bundle.main.bundleIdentifier to keep the identifier consistent when the bundle ID changes.",
       "tags": [
         "background",
         "config"
+      ],
+      "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+      "files": [
+        "MarginShot/Info.plist",
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
       ]
     }
   ]
