@@ -771,6 +771,7 @@ enum GitHubOAuthError: LocalizedError {
     case missingRedirectURI
     case invalidRedirectURI
     case authorizationCancelled
+    case authorizationStartFailed
     case missingCode
     case stateMismatch
     case tokenExchangeFailed
@@ -786,6 +787,8 @@ enum GitHubOAuthError: LocalizedError {
             return "GitHub redirect URI is invalid."
         case .authorizationCancelled:
             return "GitHub sign-in was cancelled."
+        case .authorizationStartFailed:
+            return "GitHub sign-in could not start."
         case .missingCode:
             return "GitHub authorization did not return a code."
         case .stateMismatch:
@@ -926,7 +929,11 @@ enum GitHubOAuthSession {
             session.presentationContextProvider = presentationProvider
             session.prefersEphemeralWebBrowserSession = true
             activeSession = session
-            session.start()
+            guard session.start() else {
+                activeSession = nil
+                continuation.resume(throwing: GitHubOAuthError.authorizationStartFailed)
+                return
+            }
         }
     }
 }

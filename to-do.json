@@ -1310,13 +1310,13 @@
       "files": [
         "MarginShot/ProcessingQueue.swift"
       ],
-      "updated_at": "2026-01-21T03:18:56Z"
+      "updated_at": "2026-01-21T03:19:23Z"
     },
     {
       "id": "T065",
       "title": "Handle ASWebAuthenticationSession start failures in GitHub OAuth",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "GitHubOAuthSession.requestAuthorizationCode does not handle ASWebAuthenticationSession.start() returning false, which can leave the continuation unresolved and the UI stuck on Connecting. Return a GitHubOAuthError when start fails.",
       "tags": [
         "github",
@@ -1324,8 +1324,10 @@
         "reliability"
       ],
       "files": [
-        "MarginShot/Views/SettingsView.swift"
-      ]
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T03:20:55Z"
     }
   ]
 }
