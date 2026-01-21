@@ -1,15 +1,22 @@
 # Build Configuration Setup
 
-MarginShot uses build configuration files to manage sensitive values like OAuth credentials. This keeps actual credentials out of version control.
+MarginShot uses build configuration files to manage sensitive values like OAuth credentials. This keeps actual credentials out of version control. The project uses `MarginShot.xcodeproj/Configuration.xcconfig.template` as the base config and optionally includes `MarginShot.xcodeproj/Configuration.xcconfig` for local overrides.
 
 ## Quick Setup
 
-1. Copy the template to create your local configuration:
+1. (Optional) Copy the template to create your local configuration:
    ```bash
    cp MarginShot.xcodeproj/Configuration.xcconfig.template MarginShot.xcodeproj/Configuration.xcconfig
    ```
 
 2. Edit `MarginShot.xcodeproj/Configuration.xcconfig` and replace placeholder values with your actual credentials.
+
+3. Alternatively, pass build settings via environment variables when building:
+   ```bash
+   GITHUB_CLIENT_ID=your_actual_client_id_here \
+     GITHUB_REDIRECT_URI=marginshot://github-auth \
+     xcodebuild -scheme MarginShot -configuration Debug
+   ```
 
 ## GitHub OAuth Setup
 
@@ -22,7 +29,7 @@ To enable GitHub sync, you need to create a GitHub OAuth App:
    - **Homepage URL**: `http://localhost` (or any URL - this is a native app)
    - **Authorization callback URL**: `marginshot://github-auth`
 4. Click "Register application"
-5. Copy the **Client ID** and paste it into `Configuration.xcconfig`:
+5. Copy the **Client ID** and paste it into `Configuration.xcconfig` (or provide it via `xcodebuild` settings):
    ```
    GITHUB_CLIENT_ID = your_actual_client_id_here
    ```
@@ -40,13 +47,13 @@ The redirect URI is already set to `marginshot://github-auth` in the configurati
 ## Security Notes
 
 - `Configuration.xcconfig` is listed in `.gitignore` and will not be committed to version control
-- The `Configuration.xcconfig.template` file is kept in version control as a reference
+- The `Configuration.xcconfig.template` file is kept in version control as a reference and base config
 - Never commit actual credentials to the repository
 
 ## Troubleshooting
 
-**Build fails with missing GITHUB_CLIENT_ID:**
-- Make sure you've created `Configuration.xcconfig` (not just the template)
+**GitHub sign-in reports a missing client ID:**
+- Make sure you've created `Configuration.xcconfig` (not just the template) or passed `GITHUB_CLIENT_ID` to `xcodebuild`
 - Verify the variable is set and not commented out
 - Clean the build folder (Product > Clean Build Folder) and rebuild
 
