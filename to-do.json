@@ -1350,7 +1350,7 @@
       "id": "T067",
       "title": "Reschedule background processing tasks when constraints change",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "ProcessingQueue.scheduleBackgroundProcessing returns early if a pending request exists, so updated Wi-Fi or charging settings do not update BGProcessingTaskRequest constraints. Cancel and resubmit when processing preferences change.",
       "tags": [
         "processing",
@@ -1359,9 +1359,10 @@
       ],
       "files": [
         "MarginShot/ProcessingQueue.swift",
-        "MarginShot/Views/SettingsView.swift"
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-21T03:41:51Z"
+      "updated_at": "2026-01-21T03:49:29Z"
     }
   ]
 }

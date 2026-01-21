@@ -1055,16 +1055,32 @@ final class ProcessingQueue {
         BGTaskScheduler.shared.getPendingTaskRequests { [weak self] requests in
             guard let self else { return }
             guard !requests.contains(where: { $0.identifier == self.taskIdentifier }) else { return }
+            self.submitBackgroundProcessingRequest(with: prefs)
+        }
+    }
 
-            let request = BGProcessingTaskRequest(identifier: self.taskIdentifier)
-            request.requiresNetworkConnectivity = true
-            request.requiresExternalPower = prefs.requiresExternalPower
-
-            do {
-                try BGTaskScheduler.shared.submit(request)
-            } catch {
-                print("Failed to schedule processing task: \(error)")
+    func rescheduleBackgroundProcessing() {
+        let prefs = preferences
+        BGTaskScheduler.shared.getPendingTaskRequests { [weak self] requests in
+            guard let self else { return }
+            if requests.contains(where: { $0.identifier == self.taskIdentifier }) {
+                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: self.taskIdentifier)
             }
+            guard prefs.autoProcessInbox else { return }
+            guard prefs.allowsImageUploads else { return }
+            self.submitBackgroundProcessingRequest(with: prefs)
+        }
+    }
+
+    private func submitBackgroundProcessingRequest(with prefs: ProcessingPreferences) {
+        let request = BGProcessingTaskRequest(identifier: taskIdentifier)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = prefs.requiresExternalPower
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("Failed to schedule processing task: \(error)")
         }
     }
 

@@ -346,6 +346,12 @@ struct SettingsView: View {
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
+        .onChange(of: processingWiFiOnly) { _ in
+            ProcessingQueue.shared.rescheduleBackgroundProcessing()
+        }
+        .onChange(of: processingRequiresCharging) { _ in
+            ProcessingQueue.shared.rescheduleBackgroundProcessing()
+        }
         .onChange(of: privacySendImagesToLLM) { newValue in
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()
