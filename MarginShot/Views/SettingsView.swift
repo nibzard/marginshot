@@ -586,6 +586,7 @@ struct SettingsView: View {
         gitHubRepoName = ""
         gitHubRepoFullName = ""
         gitHubRepoBranch = ""
+        syncStatus.validateConfiguration()
     }
 
     private func updateGitHubSyncErrorIfNeeded() {

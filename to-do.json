@@ -1376,9 +1376,42 @@
         "reliability"
       ],
       "files": [
-        "MarginShot/Views/CaptureView.swift"
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-21T07:49:40Z"
+      "updated_at": "2026-01-21T07:50:39Z"
+    },
+    {
+      "id": "T069",
+      "title": "Revalidate sync status after clearing GitHub repository selection",
+      "priority": 3,
+      "status": "done",
+      "details": "Clear Repository only resets stored repo values; SyncStatusStore.validateConfiguration is not called, so the header can stay idle even though the repo is missing. Trigger validation after clearing so the missing-repository error is shown immediately.",
+      "tags": [
+        "sync",
+        "ui",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/SettingsView.swift"
+      ],
+      "updated_at": "2026-01-21T08:12:48Z"
+    },
+    {
+      "id": "T070",
+      "title": "Cancel pending background processing requests when auto-process or image uploads are disabled",
+      "priority": 3,
+      "status": "todo",
+      "details": "Auto-process inbox and Send images to LLM toggles currently stop enqueuing new work but leave any scheduled BGProcessingTaskRequest in place. Cancel pending requests when these toggles are turned off to avoid unnecessary background wake-ups.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift"
+      ]
     }
   ]
 }
