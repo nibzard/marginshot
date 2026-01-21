@@ -1232,7 +1232,7 @@
       "title": "Add ApplyReviewView.swift to Xcode target sources",
       "priority": 1,
       "status": "done",
-      "details": "ChatView references ApplyReviewSheet, but ApplyReviewView.swift is not listed in project.pbxproj. Add the file to the MarginShot target sources so the app compiles.",
+      "details": "ChatView references ApplyReviewSheet, but ApplyReviewView.swift is not listed in project.pbxproj. Add the file to the MarginShot target sources so the app compiles. Verified that ApplyReviewView.swift is already present in project.pbxproj (lines 15, 66, 179, 339) - the file reference exists, is in the Views group, and is included in the Sources build phase. No changes were needed.",
       "tags": [
         "build",
         "xcode",
@@ -1244,7 +1244,22 @@
         "MarginShot/Views/ChatView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T02:07:30Z"
+      "updated_at": "2026-01-21T02:10:30Z"
+    },
+    {
+      "id": "T061",
+      "title": "Exclude local search index files from sync destinations",
+      "priority": 3,
+      "status": "done",
+      "details": "Folder/GitHub sync currently includes _system/search.sqlite (+ wal/shm), which is derived and churns on every update. Skip these files when building sync manifests/copy lists to reduce upload size and noise.",
+      "tags": [
+        "sync",
+        "performance"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ],
+      "updated_at": "2026-01-21T02:38:25Z"
     }
   ]
 }

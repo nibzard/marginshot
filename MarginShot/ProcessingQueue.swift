@@ -1665,6 +1665,11 @@ enum FolderSyncError: Error {
 
 enum FolderSyncer {
     private static let fileManager = FileManager.default
+    private static let excludedSearchFiles: Set<String> = [
+        "_system/search.sqlite",
+        "_system/search.sqlite-wal",
+        "_system/search.sqlite-shm"
+    ]
 
     static func syncVault(to destinationURL: URL, userDefaults: UserDefaults = .standard) throws {
         let vaultURL = try vaultRootURL()
@@ -1703,6 +1708,9 @@ enum FolderSyncer {
         var syncedFiles = Set<String>()
         for case let fileURL as URL in enumerator {
             let relativePath = relativePath(from: sourceURL, to: fileURL)
+            if excludedSearchFiles.contains(relativePath) {
+                continue
+            }
             let targetURL = destinationURL.appendingPathComponent(relativePath)
             let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
 
@@ -1995,6 +2003,11 @@ enum GitHubSyncError: LocalizedError {
 
 enum GitHubSyncer {
     private static let fileManager = FileManager.default
+    private static let excludedSearchFiles: Set<String> = [
+        "_system/search.sqlite",
+        "_system/search.sqlite-wal",
+        "_system/search.sqlite-shm"
+    ]
 
     static func syncVault() async throws {
         guard let token = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) else {
@@ -2052,6 +2065,9 @@ enum GitHubSyncer {
             }
             let modifiedAt = values.contentModificationDate
             let relativePath = relativePath(from: rootURL, to: fileURL)
+            if excludedSearchFiles.contains(relativePath) {
+                continue
+            }
             manifest.insert(relativePath)
             let isChanged: Bool
             if let date {
