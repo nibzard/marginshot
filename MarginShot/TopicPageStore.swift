@@ -38,6 +38,8 @@ enum TopicPageStore {
                 return
             }
             let pages = buildTopics(from: snapshot.notes)
+            let expectedFiles = Set(pages.map { topicFileName(for: $0.title) })
+            try await pruneAutoTopicPages(expectedFiles: expectedFiles, rootURL: rootURL, context: context)
             let updatedAt = Date()
             for page in pages {
                 try await writeTopicPage(page, rootURL: rootURL, updatedAt: updatedAt, context: context)
@@ -102,6 +104,36 @@ enum TopicPageStore {
             noteMeta: noteMeta,
             context: context
         )
+    }
+
+    private static func pruneAutoTopicPages(
+        expectedFiles: Set<String>,
+        rootURL: URL,
+        context: NSManagedObjectContext?
+    ) async throws {
+        let topicsURL = rootURL.appendingPathComponent(topicsFolder, isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: topicsURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return
+        }
+
+        let items = try fileManager.contentsOfDirectory(
+            at: topicsURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        for url in items {
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true else { continue }
+            guard url.pathExtension.lowercased() == "md" else { continue }
+            let fileName = url.lastPathComponent
+            guard !expectedFiles.contains(fileName) else { continue }
+            guard let contents = try? VaultFileStore.readText(from: url),
+                  contents.contains(autoMarker) else { continue }
+            try fileManager.removeItem(at: url)
+            let relativePath = "\(topicsFolder)/\(fileName)"
+            await VaultIndexStore.shared.removeNote(path: relativePath, context: context)
+        }
     }
 
     private static func buildTopicPageContent(page: TopicPage, updatedAt: Date) -> String {
