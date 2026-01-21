@@ -202,12 +202,15 @@ final class GeminiClient {
 
     private func makeRequest(body: GenerateContentRequest) throws -> URLRequest {
         let path = "v1beta/models/\(configuration.model):generateContent"
-        let endpoint = configuration.baseURL.appendingPathComponent(path)
+        var components = URLComponents(url: configuration.baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "key", value: configuration.apiKey)]
+        guard let endpoint = components?.url else {
+            throw GeminiClientError.invalidURL
+        }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(configuration.apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try encoder.encode(body)
         return request
     }

@@ -7,6 +7,11 @@ import SwiftUI
 import UIKit
 import Vision
 
+private func applyVideoRotationAngle(_ angle: CGFloat, to connection: AVCaptureConnection?) {
+    guard let connection, connection.isVideoRotationAngleSupported(angle) else { return }
+    connection.videoRotationAngle = angle
+}
+
 struct CaptureView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -86,6 +91,7 @@ struct CaptureView: View {
                 ProcessingOverlay()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             if !hasBoundContext {
                 viewModel.bind(context: context)
@@ -95,13 +101,13 @@ struct CaptureView: View {
             refreshNotebookSelection()
             viewModel.startSessionIfPossible()
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase) { _, phase in
             viewModel.handleScenePhase(phase)
         }
-        .onChange(of: selectedNotebookIdRaw) { _ in
+        .onChange(of: selectedNotebookIdRaw) { _, _ in
             viewModel.setSelectedNotebookID(selectedNotebookId)
         }
-        .onChange(of: notebooks.count) { _ in
+        .onChange(of: notebooks.count) { _, _ in
             refreshNotebookSelection()
         }
         .sheet(isPresented: $isInboxPresented) {
@@ -429,7 +435,7 @@ struct CameraPreviewView: UIViewRepresentable {
         let view = PreviewView()
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
         view.videoPreviewLayer.session = controller.session
-        controller.previewLayer = view.videoPreviewLayer
+        controller.updatePreviewLayer(view.videoPreviewLayer)
         return view
     }
 
@@ -437,10 +443,7 @@ struct CameraPreviewView: UIViewRepresentable {
         if uiView.videoPreviewLayer.session !== controller.session {
             uiView.videoPreviewLayer.session = controller.session
         }
-        if let connection = uiView.videoPreviewLayer.connection, connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
-        }
-        controller.previewLayer = uiView.videoPreviewLayer
+        controller.updatePreviewLayer(uiView.videoPreviewLayer)
     }
 }
 
@@ -482,6 +485,13 @@ struct DocumentQuad: Equatable {
     let topRight: CGPoint
     let bottomRight: CGPoint
     let bottomLeft: CGPoint
+
+    init(topLeft: CGPoint, topRight: CGPoint, bottomRight: CGPoint, bottomLeft: CGPoint) {
+        self.topLeft = topLeft
+        self.topRight = topRight
+        self.bottomRight = bottomRight
+        self.bottomLeft = bottomLeft
+    }
 
     init(observation: VNRectangleObservation) {
         topLeft = observation.topLeft
@@ -697,40 +707,41 @@ final class CaptureViewModel: ObservableObject {
             }
             statusText = "Processing scan..."
             let nextIndex = pageIndex + 1
-            let batchId = batchId
-            Task.detached(priority: .userInitiated) { [weak self] in
-                var rawPath: String?
+            let currentBatchId = batchId
+            Task(priority: .userInitiated) { [weak self] in
                 do {
-                    let stored = try VaultScanStore.saveScan(
-                        rawData: data,
-                        processedData: nil,
-                        batchId: batchId,
-                        pageIndex: nextIndex
-                    )
-                    rawPath = stored.rawPath
-                    await MainActor.run {
-                        guard let self else { return }
+                    let stored = try await Task.detached(priority: .userInitiated) {
+                        try VaultScanStore.saveScan(
+                            rawData: data,
+                            processedData: nil,
+                            batchId: currentBatchId,
+                            pageIndex: nextIndex
+                        )
+                    }.value
+
+                    if let self {
                         self.pageIndex = nextIndex
                         self.scanCount = nextIndex
                         self.persistScanIfPossible(stored, pageIndex: nextIndex, status: .preprocessing)
                     }
 
-                    let preprocessStart = CFAbsoluteTimeGetCurrent()
-                    let processed = try DocumentProcessingPipeline.process(imageData: data)
-                    let preprocessDuration = CFAbsoluteTimeGetCurrent() - preprocessStart
-                    let processedPath = try VaultScanStore.saveProcessedScan(
-                        processedData: processed.processedData,
-                        rawPath: stored.rawPath
-                    )
+                    let processingResult = try await Task.detached(priority: .userInitiated) {
+                        let preprocessStart = CFAbsoluteTimeGetCurrent()
+                        let processed = try DocumentProcessingPipeline.process(imageData: data)
+                        let preprocessDuration = CFAbsoluteTimeGetCurrent() - preprocessStart
+                        let processedPath = try VaultScanStore.saveProcessedScan(
+                            processedData: processed.processedData,
+                            rawPath: stored.rawPath
+                        )
+                        return (processedPath, preprocessDuration)
+                    }.value
 
+                    let (processedPath, preprocessDuration) = processingResult
                     let scansPerMinute = 60.0 / max(preprocessDuration, 0.001)
-                    await MainActor.run {
-                        PerformanceMetricsStore.shared.recordDuration(.capturePreprocessDuration, seconds: preprocessDuration)
-                        PerformanceMetricsStore.shared.record(.processingThroughput, value: scansPerMinute)
-                    }
+                    PerformanceMetricsStore.shared.recordDuration(.capturePreprocessDuration, seconds: preprocessDuration)
+                    PerformanceMetricsStore.shared.record(.processingThroughput, value: scansPerMinute)
 
-                    await MainActor.run {
-                        guard let self else { return }
+                    if let self {
                         self.updateScanStatus(
                             forRawPath: stored.rawPath,
                             status: .captured,
@@ -740,12 +751,9 @@ final class CaptureViewModel: ObservableObject {
                         self.isProcessing = false
                     }
                 } catch {
-                    await MainActor.run {
-                        if let rawPath {
-                            self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
-                        }
-                        self?.statusText = "Processing failed"
-                        self?.isProcessing = false
+                    if let self {
+                        self.statusText = "Processing failed"
+                        self.isProcessing = false
                     }
                 }
             }
@@ -795,7 +803,7 @@ final class CaptureViewModel: ObservableObject {
 
     @discardableResult
     func finishBatch() -> UUID? {
-        guard let context else { return }
+        guard let context else { return nil }
         guard let objectID = currentBatchObjectID,
               let batch = try? context.existingObject(with: objectID) as? BatchEntity else {
             resetBatchSession()
@@ -842,27 +850,28 @@ final class CaptureViewModel: ObservableObject {
         }
 
         Task.detached(priority: .userInitiated) { [weak self] in
+            let scanPath = rawPath
             do {
-                let rawURL = try VaultScanStore.url(for: rawPath)
+                let rawURL = try VaultScanStore.url(for: scanPath)
                 let rawData = try VaultFileStore.readData(from: rawURL)
                 let processed = try DocumentProcessingPipeline.process(imageData: rawData)
                 let processedPath = try VaultScanStore.saveProcessedScan(
                     processedData: processed.processedData,
-                    rawPath: rawPath
+                    rawPath: scanPath
                 )
-                await MainActor.run {
+                await MainActor.run { [weak self] in
                     self?.updateScanStatus(
-                        forRawPath: rawPath,
+                        forRawPath: scanPath,
                         status: .captured,
                         processedPath: processedPath
                     )
-                    self?.queueBatchProcessing(forRawPath: rawPath)
+                    self?.queueBatchProcessing(forRawPath: scanPath)
                     self?.statusText = "Retry complete"
                     self?.isProcessing = false
                 }
             } catch {
-                await MainActor.run {
-                    self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
+                await MainActor.run { [weak self] in
+                    self?.updateScanStatus(forRawPath: scanPath, status: .error, processedPath: nil)
                     self?.statusText = "Retry failed"
                     self?.isProcessing = false
                 }
@@ -906,7 +915,8 @@ final class CaptureViewModel: ObservableObject {
         isProcessing = true
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            for rawPath in scansNeedingPreprocess {
+            let scansToProcess = scansNeedingPreprocess
+            for rawPath in scansToProcess {
                 do {
                     let rawURL = try VaultScanStore.url(for: rawPath)
                     let rawData = try VaultFileStore.readData(from: rawURL)
@@ -915,7 +925,7 @@ final class CaptureViewModel: ObservableObject {
                         processedData: processed.processedData,
                         rawPath: rawPath
                     )
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
                         self?.updateScanStatus(
                             forRawPath: rawPath,
                             status: .captured,
@@ -923,12 +933,12 @@ final class CaptureViewModel: ObservableObject {
                         )
                     }
                 } catch {
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
                         self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
                     }
                 }
             }
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 self?.statusText = "Batch queued"
                 self?.isProcessing = false
                 ProcessingQueue.shared.enqueuePendingProcessing()
@@ -1047,6 +1057,8 @@ final class CameraController: NSObject {
     private let videoQueue = DispatchQueue(label: "marginshot.camera.video")
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
+    private var cameraDevice: AVCaptureDevice?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
     private var isDetecting = false
     private var lastDetectionTime: CFTimeInterval = 0
@@ -1066,6 +1078,7 @@ final class CameraController: NSObject {
     func startSession() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            guard self.isConfigured else { return }
             if !self.session.isRunning {
                 self.session.startRunning()
             }
@@ -1083,20 +1096,25 @@ final class CameraController: NSObject {
 
     func capturePhoto() {
         let settings = AVCapturePhotoSettings()
-        if photoOutput.isHighResolutionCaptureEnabled {
-            settings.isHighResolutionPhotoEnabled = true
-        }
+        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
         settings.photoQualityPrioritization = .quality
         photoOutput.capturePhoto(with: settings, delegate: self)
     }
 
+    func updatePreviewLayer(_ layer: AVCaptureVideoPreviewLayer) {
+        previewLayer = layer
+        updateRotationCoordinator(previewLayer: layer)
+    }
+
     private func configureSession() throws {
         session.beginConfiguration()
+        defer { session.commitConfiguration() }
         session.sessionPreset = .photo
 
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
             throw CameraControllerError.cameraUnavailable
         }
+        cameraDevice = camera
 
         let input = try AVCaptureDeviceInput(device: camera)
         if session.canAddInput(input) {
@@ -1106,7 +1124,9 @@ final class CameraController: NSObject {
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
         }
-        photoOutput.isHighResolutionCaptureEnabled = true
+        if let maxDimensions = maxPhotoDimensions(for: camera) {
+            photoOutput.maxPhotoDimensions = maxDimensions
+        }
 
         videoOutput.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
@@ -1117,14 +1137,34 @@ final class CameraController: NSObject {
         }
         videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
 
-        if let connection = videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
-        }
-        if let connection = photoOutput.connection(with: .video), connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
-        }
+        updateRotationCoordinator()
+    }
 
-        session.commitConfiguration()
+    private func maxPhotoDimensions(for camera: AVCaptureDevice) -> CMVideoDimensions? {
+        let supportedDimensions = camera.activeFormat.supportedMaxPhotoDimensions
+        return supportedDimensions.max { lhs, rhs in
+            let lhsArea = Int64(lhs.width) * Int64(lhs.height)
+            let rhsArea = Int64(rhs.width) * Int64(rhs.height)
+            return lhsArea < rhsArea
+        }
+    }
+
+    private func updateRotationCoordinator(previewLayer: AVCaptureVideoPreviewLayer? = nil) {
+        guard let cameraDevice else { return }
+        let layer = previewLayer ?? self.previewLayer
+        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: cameraDevice, previewLayer: layer)
+        applyRotationAngles()
+    }
+
+    private func applyRotationAngles() {
+        guard let rotationCoordinator else { return }
+        applyVideoRotationAngle(
+            rotationCoordinator.videoRotationAngleForHorizonLevelPreview,
+            to: previewLayer?.connection
+        )
+        let captureAngle = rotationCoordinator.videoRotationAngleForHorizonLevelCapture
+        applyVideoRotationAngle(captureAngle, to: videoOutput.connection(with: .video))
+        applyVideoRotationAngle(captureAngle, to: photoOutput.connection(with: .video))
     }
 }
 
@@ -1280,7 +1320,7 @@ enum DocumentDetector {
     }
 }
 
-struct StoredScan {
+struct StoredScan: Sendable {
     let rawPath: String
     let processedPath: String?
 }

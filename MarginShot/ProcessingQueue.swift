@@ -1002,6 +1002,7 @@ final class ProcessingQueue {
     }
 
     func registerBackgroundTasks() {
+        guard supportsBackgroundTasks else { return }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { [weak self] task in
             self?.handleBackgroundTask(task)
         }
@@ -1014,6 +1015,7 @@ final class ProcessingQueue {
     }
 
     func scheduleBackgroundProcessing() {
+        guard supportsBackgroundTasks else { return }
         let prefs = preferences
         guard prefs.autoProcessInbox else { return }
         guard prefs.allowsImageUploads else { return }
@@ -1034,6 +1036,10 @@ final class ProcessingQueue {
     }
 
     private func handleBackgroundTask(_ task: BGTask) {
+        guard supportsBackgroundTasks else {
+            task.setTaskCompleted(success: false)
+            return
+        }
         scheduleBackgroundProcessing()
         guard let processingTask = task as? BGProcessingTask else {
             task.setTaskCompleted(success: false)
@@ -1068,6 +1074,14 @@ final class ProcessingQueue {
         guard !isProcessing else { return false }
         isProcessing = true
         return true
+    }
+
+    private var supportsBackgroundTasks: Bool {
+#if targetEnvironment(simulator)
+        return false
+#else
+        return true
+#endif
     }
 
     private func endProcessing() {
@@ -1243,10 +1257,11 @@ final class ProcessingQueue {
         let scanStart = CFAbsoluteTimeGetCurrent()
         var shouldRecordDuration = false
         defer {
-            guard shouldRecordDuration else { return }
-            let duration = CFAbsoluteTimeGetCurrent() - scanStart
-            Task { @MainActor in
-                PerformanceMetricsStore.shared.recordDuration(.processingScanDuration, seconds: duration)
+            if shouldRecordDuration {
+                let duration = CFAbsoluteTimeGetCurrent() - scanStart
+                Task { @MainActor in
+                    PerformanceMetricsStore.shared.recordDuration(.processingScanDuration, seconds: duration)
+                }
             }
         }
 
@@ -1560,7 +1575,7 @@ enum SyncFolderSelection {
         var isStale = false
         let url = try? URL(
             resolvingBookmarkData: data,
-            options: [.withSecurityScope],
+            options: [],
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
@@ -1578,7 +1593,7 @@ enum SyncFolderSelection {
             }
         }
         guard let data = try? url.bookmarkData(
-            options: [.withSecurityScope],
+            options: [],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         ) else {
@@ -2131,8 +2146,6 @@ enum GitHubSyncer {
             return .apiError("GitHub requires a file SHA to update content.")
         case .apiError(let message):
             return .apiError(message)
-        default:
-            return .transportError(error.localizedDescription)
         }
     }
 
@@ -2231,7 +2244,7 @@ enum GitHubAPI {
 
     static func fetchUser(token: String) async throws -> GitHubUser {
         let url = baseURL.appendingPathComponent("user")
-        var request = authorizedRequest(url: url, token: token)
+        let request = authorizedRequest(url: url, token: token)
         let (data, _) = try await performRequest(request)
         return try JSONDecoder().decode(GitHubUser.self, from: data)
     }
@@ -2247,7 +2260,7 @@ enum GitHubAPI {
         guard let url = components?.url else {
             throw GitHubAPIError.invalidResponse
         }
-        var request = authorizedRequest(url: url, token: token)
+        let request = authorizedRequest(url: url, token: token)
         let (data, _) = try await performRequest(request)
         return try JSONDecoder().decode([GitHubRepo].self, from: data)
     }
@@ -2266,7 +2279,7 @@ enum GitHubAPI {
         guard let url = components?.url else {
             throw GitHubAPIError.invalidResponse
         }
-        var request = authorizedRequest(url: url, token: token)
+        let request = authorizedRequest(url: url, token: token)
         do {
             let (data, _) = try await performRequest(request)
             let response = try JSONDecoder().decode(GitHubContentResponse.self, from: data)

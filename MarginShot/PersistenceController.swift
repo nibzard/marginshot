@@ -85,32 +85,26 @@ final class PersistenceController {
         let notebook = NSEntityDescription()
         notebook.name = "Notebook"
         notebook.managedObjectClassName = NSStringFromClass(NotebookEntity.self)
-        notebook.uniquenessConstraints = [["id"]]
 
         let batch = NSEntityDescription()
         batch.name = "Batch"
         batch.managedObjectClassName = NSStringFromClass(BatchEntity.self)
-        batch.uniquenessConstraints = [["id"]]
 
         let scan = NSEntityDescription()
         scan.name = "Scan"
         scan.managedObjectClassName = NSStringFromClass(ScanEntity.self)
-        scan.uniquenessConstraints = [["id"]]
 
         let note = NSEntityDescription()
         note.name = "Note"
         note.managedObjectClassName = NSStringFromClass(NoteEntity.self)
-        note.uniquenessConstraints = [["id"], ["path"]]
 
         let syncState = NSEntityDescription()
         syncState.name = "SyncState"
         syncState.managedObjectClassName = NSStringFromClass(SyncStateEntity.self)
-        syncState.uniquenessConstraints = [["id"]]
 
         let index = NSEntityDescription()
         index.name = "Index"
         index.managedObjectClassName = NSStringFromClass(IndexEntity.self)
-        index.uniquenessConstraints = [["id"]]
 
         let notebookId = attribute(name: "id", type: .UUIDAttributeType)
         let notebookName = attribute(name: "name", type: .stringAttributeType)
@@ -185,6 +179,7 @@ final class PersistenceController {
             notebookUpdatedAt,
             notebookBatches
         ]
+        notebook.uniquenessConstraints = [["id"]]
 
         batch.properties = [
             batchId,
@@ -194,6 +189,7 @@ final class PersistenceController {
             batchNotebook,
             batchScans
         ]
+        batch.uniquenessConstraints = [["id"]]
 
         scan.properties = [
             scanId,
@@ -209,6 +205,7 @@ final class PersistenceController {
             scanStructuredJSON,
             scanBatch
         ]
+        scan.uniquenessConstraints = [["id"]]
 
         note.properties = [
             noteId,
@@ -220,6 +217,7 @@ final class PersistenceController {
             noteCreatedAt,
             noteUpdatedAt
         ]
+        note.uniquenessConstraints = [["id"], ["path"]]
 
         syncState.properties = [
             syncId,
@@ -232,6 +230,7 @@ final class PersistenceController {
             syncIsEnabled,
             syncLastRevision
         ]
+        syncState.uniquenessConstraints = [["id"]]
 
         index.properties = [
             indexId,
@@ -241,6 +240,7 @@ final class PersistenceController {
             indexStructurePath,
             indexLastRebuildAt
         ]
+        index.uniquenessConstraints = [["id"]]
 
         model.entities = [notebook, batch, scan, note, syncState, index]
         return model
@@ -266,7 +266,7 @@ final class PersistenceController {
         let attribute = NSAttributeDescription()
         attribute.name = name
         attribute.attributeType = .transformableAttributeType
-        attribute.valueTransformerName = NSSecureUnarchiveFromDataTransformerName
+        attribute.valueTransformerName = NSValueTransformerName.secureUnarchiveFromDataTransformerName.rawValue
         attribute.isOptional = true
         return attribute
     }

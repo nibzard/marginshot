@@ -148,192 +148,22 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                syncStatusBanner
-
-                Section("Processing") {
-                    Toggle("Auto-process inbox", isOn: $autoProcessInbox)
-                    Picker("Quality mode", selection: processingQualityMode) {
-                        ForEach(ProcessingQualityMode.allCases, id: \.self) { mode in
-                            Text(mode.title).tag(mode)
+            settingsForm
+                .navigationTitle("Settings")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            dismiss()
                         }
-                    }
-                    Toggle("Wi-Fi only", isOn: $processingWiFiOnly)
-                    Toggle("Charging only", isOn: $processingRequiresCharging)
-                } footer: {
-                    Text("Control background processing and model depth. Raw transcripts are stored in each note under \"Raw transcription\".")
-                }
-
-                Section("Sync") {
-                    Picker("Destination", selection: syncDestination) {
-                        ForEach(SyncDestination.allCases) { destination in
-                            Text(destination.title).tag(destination)
-                        }
-                    }
-                    Toggle("Wi-Fi only", isOn: $syncWiFiOnly)
-                    Toggle("Charging only", isOn: $syncRequiresCharging)
-                    if syncDestination.wrappedValue == .folder {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(syncFolderDisplayName.isEmpty ? "No folder selected" : syncFolderDisplayName)
-                                .foregroundStyle(syncFolderDisplayName.isEmpty ? .secondary : .primary)
-                            Button("Choose Folder") {
-                                isPickingSyncFolder = true
-                            }
-                            if !syncFolderDisplayName.isEmpty {
-                                Button("Clear Folder") {
-                                    syncFolderBookmark = Data()
-                                    syncFolderDisplayName = ""
-                                    syncStatus.markError("Select a folder in Settings to enable sync.")
-                                }
-                            }
-                        }
-                    }
-                    if syncDestination.wrappedValue == .github {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if hasGitHubToken {
-                                Text(gitHubUserLogin.isEmpty ? "GitHub connected" : "Signed in as \(gitHubUserLogin)")
-                                    .font(.subheadline)
-                                Text(gitHubRepoDisplayName)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 12) {
-                                    Button("Choose Repository") {
-                                        isPickingGitHubRepo = true
-                                    }
-                                    .buttonStyle(.bordered)
-                                    if hasSelectedGitHubRepo {
-                                        Button("Clear Repository") {
-                                            clearGitHubRepoSelection()
-                                        }
-                                        .buttonStyle(.bordered)
-                                    }
-                                }
-                                Button("Sign out") {
-                                    signOutGitHub()
-                                }
-                                .buttonStyle(.bordered)
-                            } else {
-                                Button(isSigningInToGitHub ? "Connecting..." : "Connect GitHub") {
-                                    signInGitHub()
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isSigningInToGitHub)
-                                if let gitHubAuthStatus {
-                                    Text(gitHubAuthStatus)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text("Sign in to choose a repository for sync.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                } footer: {
-                    Text("Sync stays off until you choose a destination. Runs after processing and apply-to-vault.")
-                }
-
-                Section("Organization") {
-                    Picker("Folder style", selection: organizationStyle) {
-                        ForEach(OrganizationStyle.allCases) { style in
-                            Text(style.title).tag(style)
-                        }
-                    }
-                    Toggle("Linking", isOn: $organizationLinkingEnabled)
-                    Toggle("Task extraction", isOn: $organizationTaskExtractionEnabled)
-                    Toggle("Topic pages", isOn: $organizationTopicPagesEnabled)
-                    NavigationLink("Edit System Rules") {
-                        SystemRulesEditorView()
-                    }
-                } footer: {
-                    Text("Tune how notes are structured and connected. Manage notebooks and overrides from Capture.")
-                }
-
-                Section("Privacy") {
-                    Toggle("Send images to LLM", isOn: $privacySendImagesToLLM)
-                    VStack(alignment: .leading, spacing: 8) {
-                        SecureField("Gemini API key", text: $geminiAPIKeyDraft)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                        HStack(spacing: 12) {
-                            Button("Save API key") {
-                                saveGeminiAPIKey()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!canSaveGeminiAPIKey)
-                            if hasGeminiAPIKey {
-                                Button("Clear") {
-                                    clearGeminiAPIKey()
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        if let geminiAPIKeyStatus {
-                            Text(geminiAPIKeyStatus)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if hasGeminiAPIKey {
-                            Text("API key stored in Keychain.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Toggle("Local encryption", isOn: $privacyLocalEncryptionEnabled)
-                } footer: {
-                    Text("When enabled, page images are sent to the LLM provider for transcription. Turn this off to keep images on device; scans stay in the inbox until re-enabled.")
-                }
-
-                Section("Performance") {
-                    ForEach(PerformanceMetric.primaryMetrics) { metric in
-                        PerformanceMetricRow(
-                            metric: metric,
-                            valueText: performanceStore.formattedValue(for: metric),
-                            targetText: performanceStore.formattedTarget(for: metric),
-                            status: performanceStore.status(for: metric)
-                        )
-                    }
-                    Button("Reset metrics") {
-                        performanceStore.reset()
-                    }
-                } footer: {
-                    Text("Targets align with the performance budgets in SPECS.")
-                }
-
-                Section("Advanced") {
-                    Toggle("Review changes before applying", isOn: $advancedReviewBeforeApply)
-                    Toggle("Enable ZIP export", isOn: $advancedEnableZipExport)
-                    if advancedEnableZipExport {
-                        Button(isExportingVaultZip ? "Preparing ZIP..." : "Export vault as ZIP") {
-                            exportVaultZip()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isExportingVaultZip)
-                        if let vaultZipError {
-                            Text(vaultZipError)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } footer: {
-                    Text("Extra controls for power users.")
-                }
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
                     }
                 }
-            }
         }
         .onAppear {
             syncStatus.refreshDestination()
             refreshGeminiAPIKeyStatus()
             refreshGitHubStatus()
         }
-        .onChange(of: syncDestinationRaw) { newValue in
+        .onChange(of: syncDestinationRaw) { _, newValue in
             let resolved = SyncDestination(rawValue: newValue) ?? .off
             syncStatus.updateDestination(resolved)
             if resolved == .folder, syncFolderDisplayName.isEmpty {
@@ -349,23 +179,23 @@ struct SettingsView: View {
                 }
             }
         }
-        .onChange(of: autoProcessInbox) { newValue in
+        .onChange(of: autoProcessInbox) { _, newValue in
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
-        .onChange(of: privacySendImagesToLLM) { newValue in
+        .onChange(of: privacySendImagesToLLM) { _, newValue in
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
-        .onChange(of: privacyLocalEncryptionEnabled) { newValue in
+        .onChange(of: privacyLocalEncryptionEnabled) { _, newValue in
             VaultEncryptionManager.handleSettingChange(enabled: newValue)
             if !newValue {
                 isShowingEncryptionDisabledNotice = true
             }
         }
-        .onChange(of: advancedEnableZipExport) { newValue in
+        .onChange(of: advancedEnableZipExport) { _, newValue in
             if !newValue {
                 clearVaultZipState()
             }
@@ -385,8 +215,13 @@ struct SettingsView: View {
                     }
                 }
                 do {
+                    #if os(macOS)
+                    let bookmarkOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
+                    #else
+                    let bookmarkOptions: URL.BookmarkCreationOptions = []
+                    #endif
                     let bookmark = try url.bookmarkData(
-                        options: [.withSecurityScope],
+                        options: bookmarkOptions,
                         includingResourceValuesForKeys: nil,
                         relativeTo: nil
                     )
@@ -431,6 +266,210 @@ struct SettingsView: View {
         }
     }
 
+    private var settingsForm: some View {
+        Form {
+            syncStatusBanner
+            processingSection
+            syncSection
+            organizationSection
+            privacySection
+            performanceSection
+            advancedSection
+        }
+    }
+
+    private var processingSection: some View {
+        Section {
+            Toggle("Auto-process inbox", isOn: $autoProcessInbox)
+            Picker("Quality mode", selection: processingQualityMode) {
+                ForEach(ProcessingQualityMode.allCases, id: \.self) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            Toggle("Wi-Fi only", isOn: $processingWiFiOnly)
+            Toggle("Charging only", isOn: $processingRequiresCharging)
+        } header: {
+            Text("Processing")
+        } footer: {
+            Text("Control background processing and model depth. Raw transcripts are stored in each note under \"Raw transcription\".")
+        }
+    }
+
+    private var syncSection: some View {
+        Section {
+            Picker("Destination", selection: syncDestination) {
+                ForEach(SyncDestination.allCases) { destination in
+                    Text(destination.title).tag(destination)
+                }
+            }
+            Toggle("Wi-Fi only", isOn: $syncWiFiOnly)
+            Toggle("Charging only", isOn: $syncRequiresCharging)
+            if syncDestination.wrappedValue == .folder {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(syncFolderDisplayName.isEmpty ? "No folder selected" : syncFolderDisplayName)
+                        .foregroundStyle(syncFolderDisplayName.isEmpty ? .secondary : .primary)
+                    Button("Choose Folder") {
+                        isPickingSyncFolder = true
+                    }
+                    if !syncFolderDisplayName.isEmpty {
+                        Button("Clear Folder") {
+                            syncFolderBookmark = Data()
+                            syncFolderDisplayName = ""
+                            syncStatus.markError("Select a folder in Settings to enable sync.")
+                        }
+                    }
+                }
+            }
+            if syncDestination.wrappedValue == .github {
+                VStack(alignment: .leading, spacing: 8) {
+                    if hasGitHubToken {
+                        Text(gitHubUserLogin.isEmpty ? "GitHub connected" : "Signed in as \(gitHubUserLogin)")
+                            .font(.subheadline)
+                        Text(gitHubRepoDisplayName)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            Button("Choose Repository") {
+                                isPickingGitHubRepo = true
+                            }
+                            .buttonStyle(.bordered)
+                            if hasSelectedGitHubRepo {
+                                Button("Clear Repository") {
+                                    clearGitHubRepoSelection()
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        Button("Sign out") {
+                            signOutGitHub()
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button(isSigningInToGitHub ? "Connecting..." : "Connect GitHub") {
+                            signInGitHub()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isSigningInToGitHub)
+                        if let gitHubAuthStatus {
+                            Text(gitHubAuthStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Sign in to choose a repository for sync.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Sync")
+        } footer: {
+            Text("Sync stays off until you choose a destination. Runs after processing and apply-to-vault.")
+        }
+    }
+
+    private var organizationSection: some View {
+        Section {
+            Picker("Folder style", selection: organizationStyle) {
+                ForEach(OrganizationStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            Toggle("Linking", isOn: $organizationLinkingEnabled)
+            Toggle("Task extraction", isOn: $organizationTaskExtractionEnabled)
+            Toggle("Topic pages", isOn: $organizationTopicPagesEnabled)
+            NavigationLink("Edit System Rules") {
+                SystemRulesEditorView()
+            }
+        } header: {
+            Text("Organization")
+        } footer: {
+            Text("Tune how notes are structured and connected. Manage notebooks and overrides from Capture.")
+        }
+    }
+
+    private var privacySection: some View {
+        Section {
+            Toggle("Send images to LLM", isOn: $privacySendImagesToLLM)
+            VStack(alignment: .leading, spacing: 8) {
+                SecureField("Gemini API key", text: $geminiAPIKeyDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                HStack(spacing: 12) {
+                    Button("Save API key") {
+                        saveGeminiAPIKey()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!canSaveGeminiAPIKey)
+                    if hasGeminiAPIKey {
+                        Button("Clear") {
+                            clearGeminiAPIKey()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                if let geminiAPIKeyStatus {
+                    Text(geminiAPIKeyStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if hasGeminiAPIKey {
+                    Text("API key stored in Keychain.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Toggle("Local encryption", isOn: $privacyLocalEncryptionEnabled)
+        } header: {
+            Text("Privacy")
+        } footer: {
+            Text("When enabled, page images are sent to the LLM provider for transcription. Turn this off to keep images on device; scans stay in the inbox until re-enabled.")
+        }
+    }
+
+    private var performanceSection: some View {
+        Section {
+            ForEach(PerformanceMetric.primaryMetrics) { metric in
+                PerformanceMetricRow(
+                    metric: metric,
+                    valueText: performanceStore.formattedValue(for: metric),
+                    targetText: performanceStore.formattedTarget(for: metric),
+                    status: performanceStore.status(for: metric)
+                )
+            }
+            Button("Reset metrics") {
+                performanceStore.reset()
+            }
+        } header: {
+            Text("Performance")
+        } footer: {
+            Text("Targets align with the performance budgets in SPECS.")
+        }
+    }
+
+    private var advancedSection: some View {
+        Section {
+            Toggle("Review changes before applying", isOn: $advancedReviewBeforeApply)
+            Toggle("Enable ZIP export", isOn: $advancedEnableZipExport)
+            if advancedEnableZipExport {
+                Button(isExportingVaultZip ? "Preparing ZIP..." : "Export vault as ZIP") {
+                    exportVaultZip()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExportingVaultZip)
+                if let vaultZipError {
+                    Text(vaultZipError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Advanced")
+        } footer: {
+            Text("Extra controls for power users.")
+        }
+    }
+
     private var canSaveGeminiAPIKey: Bool {
         !geminiAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -472,7 +511,7 @@ struct SettingsView: View {
         if FileManager.default.fileExists(atPath: zipURL.path) {
             try FileManager.default.removeItem(at: zipURL)
         }
-        try FileManager.default.zipItem(at: vaultURL, to: zipURL, shouldKeepParent: true)
+        try ZipArchiveWriter.zipItem(at: vaultURL, to: zipURL, shouldKeepParent: true)
         return zipURL
     }
 
@@ -650,6 +689,314 @@ struct SettingsView: View {
                 return "Vault folder not found yet."
             }
         }
+    }
+}
+
+private enum ZipArchiveWriterError: LocalizedError {
+    case fileNameTooLong(String)
+    case fileTooLarge(String)
+    case archiveTooLarge
+    case tooManyEntries
+
+    var errorDescription: String? {
+        switch self {
+        case .fileNameTooLong(let name):
+            return "File name too long for ZIP entry: \(name)"
+        case .fileTooLarge(let name):
+            return "File too large to zip: \(name)"
+        case .archiveTooLarge:
+            return "ZIP archive is too large."
+        case .tooManyEntries:
+            return "Too many files to include in one ZIP."
+        }
+    }
+}
+
+private struct ZipArchiveWriter {
+    private struct ZipEntry {
+        let path: String
+        let isDirectory: Bool
+        let fileURL: URL?
+        let crc32: UInt32
+        let uncompressedSize: UInt32
+        let modTime: UInt16
+        let modDate: UInt16
+    }
+
+    private struct CentralDirectoryEntry {
+        let entry: ZipEntry
+        let localHeaderOffset: UInt32
+    }
+
+    static func zipItem(at sourceURL: URL, to destinationURL: URL, shouldKeepParent: Bool) throws {
+        let entries = try buildEntries(for: sourceURL, shouldKeepParent: shouldKeepParent)
+        guard entries.count <= Int(UInt16.max) else {
+            throw ZipArchiveWriterError.tooManyEntries
+        }
+
+        FileManager.default.createFile(atPath: destinationURL.path, contents: nil, attributes: nil)
+        let handle = try FileHandle(forWritingTo: destinationURL)
+        defer { try? handle.close() }
+
+        var centralDirectory: [CentralDirectoryEntry] = []
+        for entry in entries {
+            let offset = try currentOffset(handle)
+            try writeLocalHeader(entry, to: handle)
+            if let fileURL = entry.fileURL, !entry.isDirectory {
+                try writeFileData(from: fileURL, to: handle)
+            }
+            centralDirectory.append(CentralDirectoryEntry(entry: entry, localHeaderOffset: offset))
+        }
+
+        let centralDirectoryOffset = try currentOffset(handle)
+        for item in centralDirectory {
+            try writeCentralDirectory(item, to: handle)
+        }
+
+        let centralDirectorySize = try currentOffset(handle) - centralDirectoryOffset
+
+        try writeEndOfCentralDirectory(
+            entryCount: UInt16(centralDirectory.count),
+            centralDirectorySize: UInt32(centralDirectorySize),
+            centralDirectoryOffset: UInt32(centralDirectoryOffset),
+            to: handle
+        )
+    }
+
+    private static func buildEntries(for sourceURL: URL, shouldKeepParent: Bool) throws -> [ZipEntry] {
+        let fileManager = FileManager.default
+        let resourceKeys: Set<URLResourceKey> = [
+            .isDirectoryKey,
+            .isRegularFileKey,
+            .contentModificationDateKey
+        ]
+
+        var entries: [ZipEntry] = []
+        let rootPrefix = shouldKeepParent ? "\(sourceURL.lastPathComponent)/" : ""
+        if shouldKeepParent {
+            let (modDate, modTime) = dosDateTime(from: Date())
+            entries.append(
+                ZipEntry(
+                    path: rootPrefix,
+                    isDirectory: true,
+                    fileURL: nil,
+                    crc32: 0,
+                    uncompressedSize: 0,
+                    modTime: modTime,
+                    modDate: modDate
+                )
+            )
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: sourceURL,
+            includingPropertiesForKeys: Array(resourceKeys)
+        ) else {
+            return entries
+        }
+
+        for case let fileURL as URL in enumerator {
+            let values = try fileURL.resourceValues(forKeys: resourceKeys)
+            let isDirectory = values.isDirectory ?? false
+            let isFile = values.isRegularFile ?? false
+            guard isDirectory || isFile else { continue }
+
+            var relativePath = fileURL.path.replacingOccurrences(of: sourceURL.path, with: "")
+            if relativePath.hasPrefix("/") {
+                relativePath.removeFirst()
+            }
+            guard !relativePath.isEmpty else { continue }
+
+            var zipPath = rootPrefix + relativePath
+            if isDirectory, !zipPath.hasSuffix("/") {
+                zipPath.append("/")
+            }
+
+            let modificationDate = values.contentModificationDate ?? Date()
+            let (modDate, modTime) = dosDateTime(from: modificationDate)
+
+            if isDirectory {
+                entries.append(
+                    ZipEntry(
+                        path: zipPath,
+                        isDirectory: true,
+                        fileURL: nil,
+                        crc32: 0,
+                        uncompressedSize: 0,
+                        modTime: modTime,
+                        modDate: modDate
+                    )
+                )
+            } else {
+                let (crc32, size) = try CRC32.checksum(of: fileURL)
+                entries.append(
+                    ZipEntry(
+                        path: zipPath,
+                        isDirectory: false,
+                        fileURL: fileURL,
+                        crc32: crc32,
+                        uncompressedSize: size,
+                        modTime: modTime,
+                        modDate: modDate
+                    )
+                )
+            }
+        }
+
+        entries.sort { $0.path < $1.path }
+        return entries
+    }
+
+    private static func writeLocalHeader(_ entry: ZipEntry, to handle: FileHandle) throws {
+        let fileNameData = Data(entry.path.utf8)
+        guard fileNameData.count <= Int(UInt16.max) else {
+            throw ZipArchiveWriterError.fileNameTooLong(entry.path)
+        }
+
+        writeUInt32(0x04034b50, to: handle)
+        writeUInt16(20, to: handle)
+        writeUInt16(0x0800, to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(entry.modTime, to: handle)
+        writeUInt16(entry.modDate, to: handle)
+        writeUInt32(entry.crc32, to: handle)
+        writeUInt32(entry.uncompressedSize, to: handle)
+        writeUInt32(entry.uncompressedSize, to: handle)
+        writeUInt16(UInt16(fileNameData.count), to: handle)
+        writeUInt16(0, to: handle)
+        handle.write(fileNameData)
+    }
+
+    private static func writeCentralDirectory(_ item: CentralDirectoryEntry, to handle: FileHandle) throws {
+        let entry = item.entry
+        let fileNameData = Data(entry.path.utf8)
+        guard fileNameData.count <= Int(UInt16.max) else {
+            throw ZipArchiveWriterError.fileNameTooLong(entry.path)
+        }
+
+        writeUInt32(0x02014b50, to: handle)
+        writeUInt16(0x0314, to: handle)
+        writeUInt16(20, to: handle)
+        writeUInt16(0x0800, to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(entry.modTime, to: handle)
+        writeUInt16(entry.modDate, to: handle)
+        writeUInt32(entry.crc32, to: handle)
+        writeUInt32(entry.uncompressedSize, to: handle)
+        writeUInt32(entry.uncompressedSize, to: handle)
+        writeUInt16(UInt16(fileNameData.count), to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(0, to: handle)
+        let attributes: UInt32 = entry.isDirectory ? 0x10 : 0
+        writeUInt32(attributes, to: handle)
+        writeUInt32(item.localHeaderOffset, to: handle)
+        handle.write(fileNameData)
+    }
+
+    private static func writeEndOfCentralDirectory(
+        entryCount: UInt16,
+        centralDirectorySize: UInt32,
+        centralDirectoryOffset: UInt32,
+        to handle: FileHandle
+    ) throws {
+        writeUInt32(0x06054b50, to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(0, to: handle)
+        writeUInt16(entryCount, to: handle)
+        writeUInt16(entryCount, to: handle)
+        writeUInt32(centralDirectorySize, to: handle)
+        writeUInt32(centralDirectoryOffset, to: handle)
+        writeUInt16(0, to: handle)
+    }
+
+    private static func writeFileData(from url: URL, to handle: FileHandle) throws {
+        let input = try FileHandle(forReadingFrom: url)
+        defer { try? input.close() }
+        while true {
+            let data = try input.read(upToCount: 64 * 1024) ?? Data()
+            if data.isEmpty {
+                break
+            }
+            handle.write(data)
+        }
+    }
+
+    private static func currentOffset(_ handle: FileHandle) throws -> UInt32 {
+        let offset = handle.offsetInFile
+        guard offset <= UInt64(UInt32.max) else {
+            throw ZipArchiveWriterError.archiveTooLarge
+        }
+        return UInt32(offset)
+    }
+
+    private static func dosDateTime(from date: Date) -> (UInt16, UInt16) {
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+
+        let year = max(1980, min(components.year ?? 1980, 2107))
+        let month = max(1, min(components.month ?? 1, 12))
+        let day = max(1, min(components.day ?? 1, 31))
+        let hour = max(0, min(components.hour ?? 0, 23))
+        let minute = max(0, min(components.minute ?? 0, 59))
+        let second = max(0, min(components.second ?? 0, 59)) / 2
+
+        let dosDate = UInt16(((year - 1980) << 9) | (month << 5) | day)
+        let dosTime = UInt16((hour << 11) | (minute << 5) | second)
+        return (dosDate, dosTime)
+    }
+
+    private static func writeUInt16(_ value: UInt16, to handle: FileHandle) {
+        var littleEndian = value.littleEndian
+        let data = Data(bytes: &littleEndian, count: MemoryLayout<UInt16>.size)
+        handle.write(data)
+    }
+
+    private static func writeUInt32(_ value: UInt32, to handle: FileHandle) {
+        var littleEndian = value.littleEndian
+        let data = Data(bytes: &littleEndian, count: MemoryLayout<UInt32>.size)
+        handle.write(data)
+    }
+}
+
+private enum CRC32 {
+    private static let table: [UInt32] = (0..<256).map { index in
+        var value = UInt32(index)
+        for _ in 0..<8 {
+            if value & 1 == 1 {
+                value = 0xEDB88320 ^ (value >> 1)
+            } else {
+                value >>= 1
+            }
+        }
+        return value
+    }
+
+    static func checksum(of url: URL) throws -> (UInt32, UInt32) {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var crc: UInt32 = 0xFFFFFFFF
+        var size: UInt64 = 0
+
+        while true {
+            let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+            if data.isEmpty {
+                break
+            }
+            size += UInt64(data.count)
+            for byte in data {
+                let lookupIndex = Int((crc ^ UInt32(byte)) & 0xFF)
+                crc = (crc >> 8) ^ table[lookupIndex]
+            }
+        }
+
+        guard size <= UInt64(UInt32.max) else {
+            throw ZipArchiveWriterError.fileTooLarge(url.lastPathComponent)
+        }
+
+        return (crc ^ 0xFFFFFFFF, UInt32(size))
     }
 }
 

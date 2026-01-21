@@ -6,6 +6,10 @@
 	<string>MarginShot</string>
 	<key>CFBundleDisplayName</key>
 	<string>MarginShot</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -22,37 +26,37 @@
 	<key>GitHubRedirectURI</key>
 	<string>marginshot://github-auth</string>
 	<key>GeminiAPIKey</key>
-	<string></string>
+	<string>==REDACTED==</string>
 	<key>GeminiModelName</key>
-	<string>gemini-1.5-flash</string>
+	<string>gemini-3-flash-preview</string>
 	<key>GeminiBaseURL</key>
 	<string>https://generativelanguage.googleapis.com</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Use the camera to scan notebook pages.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow photo access to import existing pages.</string>
-    <key>BGTaskSchedulerPermittedIdentifiers</key>
-    <array>
-        <string>com.example.MarginShot.processing</string>
-    </array>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>processing</string>
-    </array>
-    <key>UIApplicationSceneManifest</key>
-    <dict>
-        <key>UIApplicationSupportsMultipleScenes</key>
-        <false/>
-        <key>UISceneConfigurations</key>
-        <dict>
-            <key>UIWindowSceneSessionRoleApplication</key>
-            <array>
-                <dict>
-                    <key>UISceneConfigurationName</key>
-                    <string>Default Configuration</string>
-                </dict>
-            </array>
-        </dict>
-    </dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow photo access to import existing pages.</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.example.MarginShot.processing</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 </dict>
 </plist>

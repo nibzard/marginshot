@@ -69,7 +69,7 @@ struct OnboardingView: View {
             .padding(24)
         }
         .onAppear(perform: refreshStatuses)
-        .onChange(of: step) { newValue in
+        .onChange(of: step) { _, newValue in
             if newValue == .permissions {
                 refreshStatuses()
             }

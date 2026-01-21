@@ -21,61 +21,10 @@ struct NotebookPickerView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Notebooks") {
-                    if notebooks.isEmpty {
-                        Text("No notebooks yet.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(notebooks, id: \.objectID) { notebook in
-                            Button {
-                                selectNotebook(notebook)
-                            } label: {
-                                HStack {
-                                    Text(notebook.name)
-                                    Spacer()
-                                    if notebook.id == selectedNotebook?.id {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                } footer: {
-                    Text("Switching notebooks applies to the next batch you capture.")
-                }
-
-                Section("Add Notebook") {
-                    TextField("Notebook name", text: $newNotebookName)
-                        .textInputAutocapitalization(.words)
-                    Button("Add Notebook") {
-                        addNotebook()
-                    }
-                    .disabled(newNotebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-
-                if selectedNotebook != nil {
-                    Section("Notebook Details") {
-                        TextField("Notebook name", text: $nameDraft)
-                            .textInputAutocapitalization(.words)
-                        Toggle("Set as default notebook", isOn: $isDefaultDraft)
-                        TextEditor(text: $rulesDraft)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(minHeight: 180)
-                        Button("Save Notebook") {
-                            saveSelectedNotebook()
-                        }
-                        .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    } footer: {
-                        Text("Rules overrides are appended to System Rules during processing.")
-                    }
-                }
-
-                if let statusMessage {
-                    Text(statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                notebooksSection
+                addNotebookSection
+                notebookDetailsSection
+                statusMessageSection
             }
             .navigationTitle("Notebooks")
             .toolbar {
@@ -88,10 +37,10 @@ struct NotebookPickerView: View {
             .onAppear {
                 refreshSelection()
             }
-            .onChange(of: selectedNotebookId) { _ in
+            .onChange(of: selectedNotebookId) { _, _ in
                 loadSelectedNotebook()
             }
-            .onChange(of: notebooks.count) { _ in
+            .onChange(of: notebooks.count) { _, _ in
                 refreshSelection()
             }
         }
@@ -106,6 +55,78 @@ struct NotebookPickerView: View {
             return defaultNotebook
         }
         return notebooks.first
+    }
+
+    private var notebooksSection: some View {
+        Section {
+            if notebooks.isEmpty {
+                Text("No notebooks yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(notebooks, id: \.objectID) { notebook in
+                    Button {
+                        selectNotebook(notebook)
+                    } label: {
+                        HStack {
+                            Text(notebook.name)
+                            Spacer()
+                            if notebook.id == selectedNotebook?.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } header: {
+            Text("Notebooks")
+        } footer: {
+            Text("Switching notebooks applies to the next batch you capture.")
+        }
+    }
+
+    private var addNotebookSection: some View {
+        Section {
+            TextField("Notebook name", text: $newNotebookName)
+                .textInputAutocapitalization(.words)
+            Button("Add Notebook") {
+                addNotebook()
+            }
+            .disabled(newNotebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } header: {
+            Text("Add Notebook")
+        }
+    }
+
+    @ViewBuilder
+    private var notebookDetailsSection: some View {
+        if selectedNotebook != nil {
+            Section {
+                TextField("Notebook name", text: $nameDraft)
+                    .textInputAutocapitalization(.words)
+                Toggle("Set as default notebook", isOn: $isDefaultDraft)
+                TextEditor(text: $rulesDraft)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 180)
+                Button("Save Notebook") {
+                    saveSelectedNotebook()
+                }
+                .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } header: {
+                Text("Notebook Details")
+            } footer: {
+                Text("Rules overrides are appended to System Rules during processing.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusMessageSection: some View {
+        if let statusMessage {
+            Text(statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func selectNotebook(_ notebook: NotebookEntity) {

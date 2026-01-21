@@ -118,7 +118,7 @@ enum VaultFolder: CaseIterable {
         if remainder.isEmpty {
             return normalizedFirst
         }
-        return ([normalizedFirst] + remainder).joined(separator: "/")
+        return ([normalizedFirst] + remainder.map { String($0) }).joined(separator: "/")
     }
 
     static func folderNames(style: OrganizationStyle) -> [String] {

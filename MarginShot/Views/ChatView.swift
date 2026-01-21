@@ -24,7 +24,7 @@ struct ChatView: View {
         .onAppear {
             viewModel.preferredBatchId = preferredBatchId
         }
-        .onChange(of: preferredBatchId) { newValue in
+        .onChange(of: preferredBatchId) { _, newValue in
             viewModel.preferredBatchId = newValue
         }
         .sheet(item: $reviewMessage) { message in
@@ -78,10 +78,10 @@ struct ChatView: View {
             .onAppear {
                 scrollToBottom(proxy)
             }
-            .onChange(of: viewModel.messages.count) { _ in
+            .onChange(of: viewModel.messages.count) { _, _ in
                 scrollToBottom(proxy)
             }
-            .onChange(of: viewModel.isThinking) { _ in
+            .onChange(of: viewModel.isThinking) { _, _ in
                 scrollToBottom(proxy)
             }
         }
@@ -385,7 +385,7 @@ struct MessageRow: View {
 
     private var bubbleBackground: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(message.role == .user ? Color.accentColor : .ultraThinMaterial)
+            .fill(message.role == .user ? Color.accentColor : Color(.systemBackground))
     }
 
     private var bubbleBorder: some View {

@@ -40,8 +40,10 @@ struct ContentView: View {
                             .tag(AppMode.chat)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .animation(.easeInOut(duration: 0.2), value: selectedMode)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 OnboardingView(isComplete: $hasCompletedOnboarding)
             }
@@ -60,7 +62,7 @@ struct ContentView: View {
                 print("Vault bootstrap failed: \(error)")
             }
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 VaultFileStore.cleanupDecryptedCopies()
             }
@@ -81,7 +83,6 @@ struct VaultBootstrapper {
     private static let vaultFolderName = "vault"
 
     static func bootstrapIfNeeded() throws {
-        let fileManager = FileManager.default
         let rootURL = try vaultRootURL()
         try createDirectoryIfNeeded(at: rootURL)
         let style = OrganizationPreferences().style
@@ -123,8 +124,7 @@ struct VaultBootstrapper {
     }
 
     private static func writeFileIfNeeded(at url: URL, contents: String) throws {
-        let fileManager = FileManager.default
-        guard !fileManager.fileExists(atPath: url.path) else { return }
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
         try VaultFileStore.writeText(contents, to: url)
     }
 

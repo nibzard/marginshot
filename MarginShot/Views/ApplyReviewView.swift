@@ -299,7 +299,7 @@ enum DiffBuilder {
     }
 
     private static func lines(from text: String, limit: Int) -> ([String], Bool) {
-        let rawLines = text.split(whereSeparator: \.isNewline, omittingEmptySubsequences: false)
+        let rawLines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         if rawLines.count > limit {
             return (rawLines.prefix(limit).map(String.init), true)
         }

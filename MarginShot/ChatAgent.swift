@@ -156,6 +156,10 @@ private struct ChatResponsePayload: Decodable {
     let fileOps: [VaultFileOperation]
     let warnings: [String]
 
+    enum CodingKeys: String, CodingKey {
+        case answer, grounded, usedSources, fileOps, warnings
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         answer = (try? container.decode(String.self, forKey: .answer)) ?? ""
