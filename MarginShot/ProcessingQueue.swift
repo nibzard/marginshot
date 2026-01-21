@@ -997,7 +997,7 @@ final class ProcessingQueue {
 
     private let persistenceController: PersistenceController
     private var taskIdentifier: String {
-        Bundle.main.bundleIdentifier.map { "\($0).processing" } ?? "com.example.MarginShot.processing"
+        Bundle.main.bundleIdentifier.map { "\($0).processing" } ?? "processing"
     }
     private let processingLock = NSLock()
     private var isProcessing = false
