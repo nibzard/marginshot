@@ -582,6 +582,10 @@ struct SettingsView: View {
             defaults.removeObject(forKey: lastSyncKey)
         }
         defaults.removeObject(forKey: GitHubDefaults.lastSyncAtLegacyKey)
+        defaults.removeObject(forKey: GitHubDefaults.repoOwnerKey)
+        defaults.removeObject(forKey: GitHubDefaults.repoNameKey)
+        defaults.removeObject(forKey: GitHubDefaults.repoFullNameKey)
+        defaults.removeObject(forKey: GitHubDefaults.repoBranchKey)
         gitHubRepoOwner = ""
         gitHubRepoName = ""
         gitHubRepoFullName = ""

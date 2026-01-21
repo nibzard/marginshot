@@ -1393,9 +1393,10 @@
         "reliability"
       ],
       "files": [
-        "MarginShot/Views/SettingsView.swift"
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-21T08:12:48Z"
+      "updated_at": "2026-01-21T08:15:05Z"
     },
     {
       "id": "T070",
