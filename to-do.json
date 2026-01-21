@@ -1327,7 +1327,41 @@
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T03:20:55Z"
+      "updated_at": "2026-01-21T03:22:31Z"
+    },
+    {
+      "status": "done",
+      "details": "Implemented by deferring batch queueing until preprocessing completes. The batch status is now only set to queued after all preprocessing finishes, preventing the processing queue from starting before processed images are available.",
+      "updated_at": "2026-01-21T03:44:07Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "MarginShot/ProcessingQueue.swift"
+      ],
+      "id": "T066",
+      "title": "Prevent retryBatch preprocessing from racing processing queue",
+      "priority": 2,
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ]
+    },
+    {
+      "id": "T067",
+      "title": "Reschedule background processing tasks when constraints change",
+      "priority": 3,
+      "status": "todo",
+      "details": "ProcessingQueue.scheduleBackgroundProcessing returns early if a pending request exists, so updated Wi-Fi or charging settings do not update BGProcessingTaskRequest constraints. Cancel and resubmit when processing preferences change.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift"
+      ],
+      "updated_at": "2026-01-21T03:41:51Z"
     }
   ]
 }

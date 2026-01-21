@@ -1019,12 +1019,16 @@ final class CaptureViewModel: ObservableObject {
                 }
             }
         }
-        batch.status = BatchStatus.queued.rawValue
+        // Do NOT set batch to queued yet - wait until preprocessing completes
+        // to avoid racing with the processing queue
         batch.updatedAt = Date()
 
         do {
             try context.save()
             if scansNeedingPreprocess.isEmpty {
+                // No preprocessing needed, safe to queue now
+                batch.status = BatchStatus.queued.rawValue
+                try context.save()
                 statusText = "Batch queued"
                 ProcessingQueue.shared.enqueuePendingProcessing()
                 return
@@ -1038,6 +1042,7 @@ final class CaptureViewModel: ObservableObject {
         isProcessing = true
 
         Task.detached(priority: .userInitiated) { [weak self] in
+            var allSucceeded = true
             for rawPath in scansNeedingPreprocess {
                 do {
                     let rawURL = try VaultScanStore.url(for: rawPath)
@@ -1055,14 +1060,27 @@ final class CaptureViewModel: ObservableObject {
                         )
                     }
                 } catch {
+                    allSucceeded = false
                     await MainActor.run {
                         self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
                     }
                 }
             }
             await MainActor.run {
-                self?.statusText = "Batch queued"
-                self?.isProcessing = false
+                guard let self else { return }
+                // Only queue the batch after preprocessing completes
+                if let context = self.context {
+                    let request = BatchEntity.fetchRequest()
+                    request.fetchLimit = 1
+                    request.predicate = NSPredicate(format: "id == %@", self.currentBatchObjectID as Any)
+                    if let batch = try? context.fetch(request).first {
+                        batch.status = BatchStatus.queued.rawValue
+                        batch.updatedAt = Date()
+                        try? context.save()
+                    }
+                }
+                self.statusText = allSucceeded ? "Batch queued" : "Retry complete with errors"
+                self.isProcessing = false
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
