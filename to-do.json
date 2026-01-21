@@ -1113,10 +1113,29 @@
         "release",
         "branding"
       ],
-      "updated_at": "2026-01-21T01:16:44Z",
+      "updated_at": "2026-01-21T01:18:14Z",
       "files": [
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/*.png",
         "MarginShot/Assets.xcassets/AppIcon.appiconset/Contents.json",
-        "MarginShot/Assets.xcassets/AppIcon.appiconset/*.png"
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ios-marketing-1024.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-20.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-20@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-29.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-29@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-40.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-40@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-76.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-76@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-83.5@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-20@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-20@3x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-29@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-29@3x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-40@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-40@3x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-60@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-60@3x.png`",
+        "`to-do.json`"
       ]
     },
     {
@@ -1140,6 +1159,55 @@
         "MarginShot/Info.plist",
         "MarginShot/Views/SettingsView.swift",
         "to-do.json"
+      ]
+    },
+    {
+      "id": "T056",
+      "title": "Ensure camera session configuration always commits",
+      "priority": 2,
+      "status": "done",
+      "details": "CameraController.configureSession calls beginConfiguration but can throw before commitConfiguration, leaving the session in a configuring state. Use defer or explicit error handling to always commit before returning.",
+      "tags": [
+        "capture",
+        "reliability"
+      ],
+      "updated_at": "2026-01-21T01:30:53Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift"
+      ]
+    },
+    {
+      "id": "T057",
+      "title": "Report background processing deferrals as successful",
+      "priority": 2,
+      "status": "todo",
+      "details": "ProcessingQueue.processPendingBatches returns false when power/network constraints are unmet, which causes BGTaskScheduler to treat the run as failed. Treat intentional deferrals (and rescheduling) as success to avoid OS backoff.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ]
+    },
+    {
+      "id": "T058",
+      "title": "Add batch mode toggle to Capture UI",
+      "priority": 3,
+      "status": "todo",
+      "details": "The Capture UI shows Batch: On but there is no toggle to disable batching. Add a batch mode switch so users can auto-finish after each scan when batch mode is off.",
+      "tags": [
+        "ui",
+        "capture"
+      ]
+    },
+    {
+      "id": "T059",
+      "title": "Derive BGTask identifier from bundle ID",
+      "priority": 4,
+      "status": "todo",
+      "details": "BGTaskSchedulerPermittedIdentifiers and ProcessingQueue.taskIdentifier are hard-coded to com.example.MarginShot.processing. Use $(PRODUCT_BUNDLE_IDENTIFIER) or Bundle.main.bundleIdentifier to keep the identifier consistent when the bundle ID changes.",
+      "tags": [
+        "background",
+        "config"
       ]
     }
   ]

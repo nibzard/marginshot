@@ -1227,6 +1227,9 @@ final class CameraController: NSObject {
 
     private func configureSession() throws {
         session.beginConfiguration()
+        defer {
+            session.commitConfiguration()
+        }
         session.sessionPreset = .photo
 
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
@@ -1258,8 +1261,6 @@ final class CameraController: NSObject {
         if let connection = photoOutput.connection(with: .video), connection.isVideoOrientationSupported {
             connection.videoOrientation = .portrait
         }
-
-        session.commitConfiguration()
     }
 }
 
