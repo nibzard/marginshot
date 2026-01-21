@@ -59,7 +59,10 @@ enum VaultFileStore {
             let raw = try Data(contentsOf: url)
             guard isEncryptedData(raw) else { return url }
             let decrypted = try decryptDataIfNeeded(raw)
-            let safeName = sanitizeTempFileName(relativePath ?? url.lastPathComponent)
+            let nameSource = relativePath ?? url.lastPathComponent
+            let fileName = (nameSource as NSString).lastPathComponent
+            let uniqueKey = relativePath ?? url.path
+            let safeName = uniqueTempFileName(for: fileName, uniqueKey: uniqueKey)
             let tempDir = fileManager.temporaryDirectory.appendingPathComponent(decryptedTempDirectoryName, isDirectory: true)
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: nil)
             let tempURL = tempDir.appendingPathComponent(safeName)
@@ -127,6 +130,25 @@ enum VaultFileStore {
         let mapped = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
         let raw = String(mapped)
         return raw.isEmpty ? "vault-file" : raw
+    }
+
+    private static func uniqueTempFileName(for fileName: String, uniqueKey: String) -> String {
+        let baseName = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        let safeBase = sanitizeTempFileName(baseName)
+        let safeExt = sanitizeTempFileName(ext)
+        let suffix = shortHash(uniqueKey)
+        let nameRoot = safeBase.isEmpty ? "vault-file" : safeBase
+        if safeExt.isEmpty {
+            return "\(nameRoot)-\(suffix)"
+        }
+        return "\(nameRoot)-\(suffix).\(safeExt)"
+    }
+
+    private static func shortHash(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return String(hex.prefix(12))
     }
 }
 

@@ -1,0 +1,20 @@
+// MarginShot Build Configuration
+//
+// This file is the base config used by Xcode. To keep secrets out of
+// version control, create Configuration.xcconfig with your private values
+// (it is git-ignored). You can also set GITHUB_CLIENT_ID/GITHUB_REDIRECT_URI
+// via environment variables or xcodebuild build settings to override defaults.
+
+// GitHub OAuth Configuration
+// Create a GitHub OAuth App at: https://github.com/settings/developers
+// Set the Authorization callback URL to: marginshot://github-auth
+GITHUB_CLIENT_ID = YOUR_GITHUB_CLIENT_ID
+
+// Optional: Override the redirect URI (default is marginshot://github-auth)
+GITHUB_REDIRECT_URI = marginshot://github-auth
+
+// Gemini API Configuration (optional - can also be set in app Settings)
+// GEMINI_API_KEY = your_gemini_api_key_here
+
+// Optional local overrides (ignored by git).
+#include? "Configuration.xcconfig"

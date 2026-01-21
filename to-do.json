@@ -991,17 +991,17 @@
         "reliability"
       ],
       "files": [
-        "MarginShot/Views/SettingsView.swift",
         "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-20T22:49:30Z"
+      "updated_at": "2026-01-20T22:56:50Z"
     },
     {
       "id": "T048",
       "title": "Avoid sync errors when offline by gating GitHub sync on network availability",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Before GitHub sync, check for any network (or Wi-Fi if required). When offline, skip the sync attempt and keep status idle rather than marking an error.",
       "tags": [
         "sync",
@@ -1009,7 +1009,409 @@
         "reliability"
       ],
       "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/SyncStatusStore.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T23:11:31Z"
+    },
+    {
+      "id": "T049",
+      "title": "Handle open batches left after app restarts",
+      "priority": 1,
+      "status": "done",
+      "details": "Open batches with pending scans stay stuck and never reach processing if the app is closed before Finish. Detect open batches on launch or in Inbox and provide a way to queue or resume them.",
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-20T23:52:55Z"
+    },
+    {
+      "id": "T050",
+      "title": "Make VaultSyncIntegrationTests independent of user defaults",
+      "priority": 2,
+      "status": "done",
+      "details": "Set organization style/encryption defaults in test setup and read vault files via VaultFileStore (or force encryption off) so tests do not fail when preferences change.",
+      "tags": [
+        "tests",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ContentView.swift",
+        "MarginShot/OrganizationSettings.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShotTests/VaultSyncIntegrationTests.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T00:15:10Z"
+    },
+    {
+      "id": "T051",
+      "title": "Reset Vision detection state when rectangle detection fails",
+      "priority": 2,
+      "status": "done",
+      "details": "CameraController.captureOutput sets isDetecting true before running VNImageRequestHandler. If the Vision request fails, the completion handler is never called and isDetecting stays true, which stops document outline updates. Ensure the flag is cleared on failure and consider clearing the overlay or reporting the error.",
+      "tags": [
+        "capture",
+        "vision",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T00:30:52Z"
+    },
+    {
+      "id": "T052",
+      "title": "Avoid decrypted temp file name collisions for different vault paths",
+      "priority": 3,
+      "status": "done",
+      "details": "VaultFileStore.decryptedCopyURL uses a sanitized filename derived from the relative path. Different paths can sanitize to the same name (for example, foo/bar.md and foo_bar.md), which can overwrite decrypted files and open the wrong content. Include a path hash or preserve directory components in the temp filename to keep decrypted copies unique.",
+      "tags": [
+        "security",
+        "vault",
+        "chat"
+      ],
+      "files": [
+        "MarginShot/VaultFileStore.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T00:32:42Z"
+    },
+    {
+      "id": "T053",
+      "title": "Avoid auto-queueing open batches when auto-process is disabled",
+      "priority": 2,
+      "status": "done",
+      "details": "enqueueOpenBatches currently marks open batches queued on launch, which prevents resume and leaves batches stuck when auto-process is off. Only auto-queue when auto-process is enabled, or preserve open status and surface resume/queue actions.",
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ],
+      "updated_at": "2026-01-21T00:54:43Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T054",
+      "title": "Provide real app icon assets for AppIcon set",
+      "priority": 4,
+      "status": "done",
+      "details": "Assets catalog lists sizes but has no filenames; add PNGs for required iPhone/iPad sizes including 1024 marketing.",
+      "tags": [
+        "ui",
+        "release",
+        "branding"
+      ],
+      "updated_at": "2026-01-21T01:18:14Z",
+      "files": [
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/*.png",
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ios-marketing-1024.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-20.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-20@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-29.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-29@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-40.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-40@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-76.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-76@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/ipad-83.5@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-20@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-20@3x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-29@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-29@3x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-40@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-40@3x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-60@2x.png`",
+        "`MarginShot/Assets.xcassets/AppIcon.appiconset/iphone-60@3x.png`",
+        "`to-do.json`"
+      ]
+    },
+    {
+      "id": "T055",
+      "title": "Supply GitHub OAuth client ID/redirect URI via build config",
+      "priority": 2,
+      "status": "done",
+      "details": "GitHubClientID in Info.plist is empty, so GitHub sign-in always fails. Inject client ID/redirect URI from xcconfig or environment and document setup.",
+      "tags": [
+        "github",
+        "auth",
+        "config"
+      ],
+      "updated_at": "2026-01-21T01:09:59Z",
+      "files": [
+        ".gitignore",
+        "BUILD_CONFIG.md",
+        "MarginShot.xcodeproj/Configuration.xcconfig",
+        "MarginShot.xcodeproj/Configuration.xcconfig.template",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/Info.plist",
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T056",
+      "title": "Ensure camera session configuration always commits",
+      "priority": 2,
+      "status": "done",
+      "details": "CameraController.configureSession calls beginConfiguration but can throw before commitConfiguration, leaving the session in a configuring state. Use defer or explicit error handling to always commit before returning. Verified the current implementation already uses defer to commit the configuration, so no code changes were required.",
+      "tags": [
+        "capture",
+        "reliability"
+      ],
+      "updated_at": "2026-01-21T01:33:47Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T057",
+      "title": "Report background processing deferrals as successful",
+      "priority": 2,
+      "status": "done",
+      "details": "ProcessingQueue.processPendingBatches already treats power/network deferrals as successful by rescheduling and returning true, so BGTaskScheduler avoids failure backoff; no code changes required.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "updated_at": "2026-01-21T01:39:38Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T058",
+      "title": "Add batch mode toggle to Capture UI",
+      "priority": 3,
+      "status": "done",
+      "details": "The Capture UI shows Batch: On but there is no toggle to disable batching. Add a batch mode switch so users can auto-finish after each scan when batch mode is off. Verified CaptureView already includes a batch mode toggle and auto-finish; no code changes required.",
+      "tags": [
+        "ui",
+        "capture"
+      ],
+      "updated_at": "2026-01-21T01:48:10Z",
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T059",
+      "title": "Derive BGTask identifier from bundle ID",
+      "priority": 4,
+      "status": "done",
+      "details": "BGTaskSchedulerPermittedIdentifiers and ProcessingQueue.taskIdentifier are hard-coded to com.example.MarginShot.processing. Use $(PRODUCT_BUNDLE_IDENTIFIER) or Bundle.main.bundleIdentifier to keep the identifier consistent when the bundle ID changes.",
+      "tags": [
+        "background",
+        "config"
+      ],
+      "updated_at": "2026-01-21T01:51:02Z",
+      "files": [
+        "MarginShot/Info.plist",
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T060",
+      "title": "Add ApplyReviewView.swift to Xcode target sources",
+      "priority": 1,
+      "status": "done",
+      "details": "ChatView references ApplyReviewSheet, but ApplyReviewView.swift is not listed in project.pbxproj. Add the file to the MarginShot target sources so the app compiles. Verified that ApplyReviewView.swift is already present in project.pbxproj (lines 15, 66, 179, 339) - the file reference exists, is in the Views group, and is included in the Sources build phase. No changes were needed.",
+      "tags": [
+        "build",
+        "xcode",
+        "ui"
+      ],
+      "files": [
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/Views/ApplyReviewView.swift",
+        "MarginShot/Views/ChatView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T02:10:30Z"
+    },
+    {
+      "id": "T061",
+      "title": "Exclude local search index files from sync destinations",
+      "priority": 3,
+      "status": "done",
+      "details": "Folder/GitHub sync currently includes _system/search.sqlite (+ wal/shm), which is derived and churns on every update. Skip these files when building sync manifests/copy lists to reduce upload size and noise. Verified FolderSyncer and GitHubSyncer already exclude _system/search.sqlite, _system/search.sqlite-wal, and _system/search.sqlite-shm; no code changes were required.",
+      "tags": [
+        "sync",
+        "performance"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T02:41:05Z"
+    },
+    {
+      "id": "T062",
+      "title": "Validate sync configuration and clear stale errors on destination changes",
+      "priority": 2,
+      "status": "done",
+      "details": "SyncStatusStore.refreshDestination only sets the destination, so switching from GitHub to Folder (or launching with missing tokens/repo/folder) can leave stale error/idle states. Centralize validation to set or clear sync errors based on current destination and config so the header reflects reality without opening Settings.",
+      "tags": [
+        "sync",
+        "ui",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/SyncStatusStore.swift",
+        "MarginShot/Views/SettingsView.swift"
+      ],
+      "updated_at": "2026-01-21T02:57:54Z"
+    },
+    {
+      "id": "T063",
+      "title": "Prune auto-generated topic pages when tags are removed",
+      "priority": 3,
+      "status": "done",
+      "details": "TopicPageStore.refreshIfEnabled only creates/updates topic pages. Remove auto-marked topic files that are no longer in the generated tag set while preserving user-authored pages.",
+      "tags": [
+        "topics",
+        "vault",
+        "maintenance"
+      ],
+      "files": [
+        "MarginShot/TopicPageStore.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T03:02:03Z"
+    },
+    {
+      "id": "T064",
+      "title": "Reset batch status when processing is cancelled",
+      "priority": 1,
+      "status": "done",
+      "details": "If background processing is cancelled (for example BGTaskScheduler expiration), processBatch returns early without updating the batch status, leaving it stuck in processing with no retry path. Ensure cancellation restores batch status (queued or blocked) and scan states so the inbox can retry.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
         "MarginShot/ProcessingQueue.swift"
+      ],
+      "updated_at": "2026-01-21T03:19:23Z"
+    },
+    {
+      "id": "T065",
+      "title": "Handle ASWebAuthenticationSession start failures in GitHub OAuth",
+      "priority": 2,
+      "status": "done",
+      "details": "GitHubOAuthSession.requestAuthorizationCode does not handle ASWebAuthenticationSession.start() returning false, which can leave the continuation unresolved and the UI stuck on Connecting. Return a GitHubOAuthError when start fails.",
+      "tags": [
+        "github",
+        "auth",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T03:22:31Z"
+    },
+    {
+      "status": "done",
+      "details": "Implemented by deferring batch queueing until preprocessing completes. The batch status is now only set to queued after all preprocessing finishes, preventing the processing queue from starting before processed images are available.",
+      "updated_at": "2026-01-21T03:44:54Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/CaptureView.swift"
+      ],
+      "id": "T066",
+      "title": "Prevent retryBatch preprocessing from racing processing queue",
+      "priority": 2,
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ]
+    },
+    {
+      "id": "T067",
+      "title": "Reschedule background processing tasks when constraints change",
+      "priority": 3,
+      "status": "done",
+      "details": "ProcessingQueue.scheduleBackgroundProcessing returns early if a pending request exists, so updated Wi-Fi or charging settings do not update BGProcessingTaskRequest constraints. Cancel and resubmit when processing preferences change.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T03:52:11Z"
+    },
+    {
+      "id": "T068",
+      "title": "Queue the correct batch after retry preprocessing",
+      "priority": 1,
+      "status": "done",
+      "details": "Implemented by capturing the retried batch id before async preprocessing work and using that identifier to fetch and queue the correct batch when preprocessing completes. The fix prevents queueing the wrong batch when retrying an old batch while capturing a new one.",
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T07:50:39Z"
+    },
+    {
+      "id": "T069",
+      "title": "Revalidate sync status after clearing GitHub repository selection",
+      "priority": 3,
+      "status": "doing",
+      "details": "Implemented by calling syncStatus.validateConfiguration() after clearing GitHub repository values in clearGitHubRepoSelection(). This ensures the sync status immediately reflects the missing repository error in the header when the repository is cleared.",
+      "tags": [
+        "sync",
+        "ui",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/SettingsView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T09:07:24Z"
+    },
+    {
+      "id": "T070",
+      "title": "Cancel pending background processing requests when auto-process or image uploads are disabled",
+      "priority": 3,
+      "status": "todo",
+      "details": "Auto-process inbox and Send images to LLM toggles currently stop enqueuing new work but leave any scheduled BGProcessingTaskRequest in place. Cancel pending requests when these toggles are turned off to avoid unnecessary background wake-ups.",
+      "tags": [
+        "processing",
+        "background",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShot/Views/SettingsView.swift"
       ]
     }
   ]
