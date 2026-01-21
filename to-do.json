@@ -1083,7 +1083,47 @@
         "MarginShot/VaultFileStore.swift",
         "to-do.json"
       ],
-      "updated_at": "2026-01-21T00:32:28Z"
+      "updated_at": "2026-01-21T00:32:42Z"
+    },
+    {
+      "id": "T053",
+      "title": "Avoid auto-queueing open batches when auto-process is disabled",
+      "priority": 2,
+      "status": "done",
+      "details": "enqueueOpenBatches currently marks open batches queued on launch, which prevents resume and leaves batches stuck when auto-process is off. Only auto-queue when auto-process is enabled, or preserve open status and surface resume/queue actions.",
+      "tags": [
+        "capture",
+        "processing",
+        "reliability"
+      ],
+      "updated_at": "2026-01-21T00:47:43Z",
+      "files": [
+        "MarginShot/ProcessingQueue.swift"
+      ]
+    },
+    {
+      "id": "T054",
+      "title": "Provide real app icon assets for AppIcon set",
+      "priority": 4,
+      "status": "todo",
+      "details": "Assets catalog lists sizes but has no filenames; add PNGs for required iPhone/iPad sizes including 1024 marketing.",
+      "tags": [
+        "ui",
+        "release",
+        "branding"
+      ]
+    },
+    {
+      "id": "T055",
+      "title": "Supply GitHub OAuth client ID/redirect URI via build config",
+      "priority": 2,
+      "status": "todo",
+      "details": "GitHubClientID in Info.plist is empty, so GitHub sign-in always fails. Inject client ID/redirect URI from xcconfig or environment and document setup.",
+      "tags": [
+        "github",
+        "auth",
+        "config"
+      ]
     }
   ]
 }
