@@ -1106,12 +1106,17 @@
       "id": "T054",
       "title": "Provide real app icon assets for AppIcon set",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Assets catalog lists sizes but has no filenames; add PNGs for required iPhone/iPad sizes including 1024 marketing.",
       "tags": [
         "ui",
         "release",
         "branding"
+      ],
+      "updated_at": "2026-01-21T01:11:42Z",
+      "files": [
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/Contents.json",
+        "MarginShot/Assets.xcassets/AppIcon.appiconset/*.png"
       ]
     },
     {
@@ -1125,15 +1130,15 @@
         "auth",
         "config"
       ],
-      "updated_at": "2026-01-21T01:09:04Z",
+      "updated_at": "2026-01-21T01:09:59Z",
       "files": [
-        "MarginShot.xcodeproj/project.pbxproj",
-        "MarginShot.xcodeproj/Configuration.xcconfig",
-        "MarginShot.xcodeproj/Configuration.xcconfig.template",
-        "MarginShot/Info.plist",
-        "MarginShot/Views/SettingsView.swift",
         ".gitignore",
         "BUILD_CONFIG.md",
+        "MarginShot.xcodeproj/Configuration.xcconfig",
+        "MarginShot.xcodeproj/Configuration.xcconfig.template",
+        "MarginShot.xcodeproj/project.pbxproj",
+        "MarginShot/Info.plist",
+        "MarginShot/Views/SettingsView.swift",
         "to-do.json"
       ]
     }
