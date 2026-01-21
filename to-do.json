@@ -1043,12 +1043,45 @@
         "reliability"
       ],
       "files": [
-        "MarginShotTests/VaultSyncIntegrationTests.swift",
-        "MarginShot/OrganizationSettings.swift",
         "MarginShot/ContentView.swift",
-        "MarginShot/ProcessingQueue.swift"
+        "MarginShot/OrganizationSettings.swift",
+        "MarginShot/ProcessingQueue.swift",
+        "MarginShotTests/VaultSyncIntegrationTests.swift",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-21T00:14:20Z"
+      "updated_at": "2026-01-21T00:15:10Z"
+    },
+    {
+      "id": "T051",
+      "title": "Reset Vision detection state when rectangle detection fails",
+      "priority": 2,
+      "status": "done",
+      "details": "CameraController.captureOutput sets isDetecting true before running VNImageRequestHandler. If the Vision request fails, the completion handler is never called and isDetecting stays true, which stops document outline updates. Ensure the flag is cleared on failure and consider clearing the overlay or reporting the error.",
+      "tags": [
+        "capture",
+        "vision",
+        "reliability"
+      ],
+      "files": [
+        "MarginShot/Views/CaptureView.swift",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-21T00:30:16Z"
+    },
+    {
+      "id": "T052",
+      "title": "Avoid decrypted temp file name collisions for different vault paths",
+      "priority": 3,
+      "status": "todo",
+      "details": "VaultFileStore.decryptedCopyURL uses a sanitized filename derived from the relative path. Different paths can sanitize to the same name (for example, foo/bar.md and foo_bar.md), which can overwrite decrypted files and open the wrong content. Include a path hash or preserve directory components in the temp filename to keep decrypted copies unique.",
+      "tags": [
+        "security",
+        "vault",
+        "chat"
+      ],
+      "files": [
+        "MarginShot/VaultFileStore.swift"
+      ]
     }
   ]
 }

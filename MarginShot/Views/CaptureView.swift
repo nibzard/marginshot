@@ -1312,7 +1312,14 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             orientation: .right,
             options: [:]
         )
-        try? handler.perform([request])
+        do {
+            try handler.perform([request])
+        } catch {
+            isDetecting = false
+            DispatchQueue.main.async { [weak self] in
+                self?.onDetectedQuad?(nil)
+            }
+        }
     }
 }
 
