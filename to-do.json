@@ -1369,7 +1369,7 @@
       "title": "Queue the correct batch after retry preprocessing",
       "priority": 1,
       "status": "done",
-      "details": "CaptureViewModel.retryBatch queues the current capture batch instead of the batch being retried because it uses currentBatchObjectID and compares it to BatchEntity.id (UUID). Capture the retried batch's objectID or id before starting async work and update that batch when preprocessing completes.",
+      "details": "Implemented by capturing the retried batch id before async preprocessing work and using that identifier to fetch and queue the correct batch when preprocessing completes. The fix prevents queueing the wrong batch when retrying an old batch while capturing a new one.",
       "tags": [
         "capture",
         "processing",
@@ -1378,7 +1378,7 @@
       "files": [
         "MarginShot/Views/CaptureView.swift"
       ],
-      "updated_at": "2026-01-21T07:19:10Z"
+      "updated_at": "2026-01-21T07:45:40Z"
     }
   ]
 }
