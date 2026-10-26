@@ -1,16 +1,35 @@
 import SwiftUI
+import CoreData
+
+enum ChatSettingsRoute: String, Identifiable {
+    case overview, processing
+    var id: String { rawValue }
+}
 
 struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
+    @Environment(\.themeColors) private var theme
+    @EnvironmentObject private var syncStatus: SyncStatusStore
+    @Binding var mode: AppMode
     @Binding var preferredBatchId: UUID?
     @State private var expandedSources: Set<UUID> = []
     @State private var reviewMessage: ChatMessage?
+    @State private var settingsRoute: ChatSettingsRoute?
+    @State private var pendingPresented = false
+    @State private var atBottom = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FetchRequest(sortDescriptors: [], predicate: NSPredicate(format: "status != %@", ScanStatus.filed.rawValue)) private var pending: FetchedResults<ScanEntity>
     @AppStorage("advancedReviewBeforeApply") private var advancedReviewBeforeApply = false
     private let bottomAnchor = "chat-bottom"
 
-    init(preferredBatchId: Binding<UUID?> = .constant(nil), viewModel: ChatViewModel = ChatViewModel()) {
+    init(
+        mode: Binding<AppMode> = .constant(.chat),
+        preferredBatchId: Binding<UUID?> = .constant(nil),
+        viewModel: ChatViewModel? = nil
+    ) {
+        _mode = mode
         _preferredBatchId = preferredBatchId
-        _viewModel = StateObject(wrappedValue: viewModel)
+        _viewModel = StateObject(wrappedValue: viewModel ?? DesignFixture.current?.chatModel() ?? ChatViewModel())
     }
 
     var body: some View {
@@ -18,9 +37,19 @@ struct ChatView: View {
             background
             VStack(spacing: 0) {
                 conversation
-                inputBar
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom) { inputBar }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Settings", systemImage: "gearshape") { settingsRoute = .overview }.labelStyle(.iconOnly)
+            }
+        }
+        .task { await viewModel.refreshReadiness(pendingCount: pending.count) }
+        .onChange(of: pending.count) { _, _ in Task { await viewModel.refreshReadiness(pendingCount: pending.count) } }
+        .sheet(item: $settingsRoute, onDismiss: { Task { await viewModel.refreshReadiness(pendingCount: pending.count) } }) { route in SettingsView(section: route == .processing ? .processing : nil) }
+        .sheet(isPresented: $pendingPresented) { PendingScansView() }
         .onAppear {
             viewModel.preferredBatchId = preferredBatchId
         }
@@ -35,20 +64,19 @@ struct ChatView: View {
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [Color(.systemGray6), Color(.systemGray5)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        Color(uiColor: .systemBackground).ignoresSafeArea()
     }
 
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 16) {
+                    readinessBanner
+                    if !pending.isEmpty && viewModel.readiness == .ready {
+                        Button("View pending scans (\(pending.count))") { pendingPresented = true }
+                    }
                     if viewModel.messages.isEmpty && !viewModel.isThinking {
-                        emptyState
+                        if viewModel.readiness == .ready { emptyState }
                     } else {
                         ForEach(viewModel.messages) { message in
                             let isApplying = viewModel.applyingMessageIds.contains(message.id)
@@ -56,11 +84,18 @@ struct ChatView: View {
                             MessageRow(
                                 message: message,
                                 isSourcesExpanded: sourcesBinding(for: message),
-                                reviewEnabled: advancedReviewBeforeApply,
-                                onApply: message.fileOps.isEmpty ? nil : { handleApply(for: message) },
+                                reviewEnabled: advancedReviewBeforeApply || viewModel.mustReviewMessageIds.contains(message.id),
+                                onApply: (message.fileOps.isEmpty || viewModel.conflictingMessageIds.contains(message.id)) ? nil : { handleApply(for: message) },
                                 isApplying: isApplying,
                                 isApplied: isApplied
                             )
+                            if viewModel.conflictingMessageIds.contains(message.id) {
+                                Button("Refresh and review") { viewModel.refreshProposal(for: message) }
+                                    .buttonStyle(.bordered)
+                            }
+                        }
+                        if viewModel.lastFailedQuery != nil {
+                            Button("Try Again") { viewModel.retryResponse() }.buttonStyle(.bordered)
                         }
 
                         if viewModel.isThinking {
@@ -71,18 +106,18 @@ struct ChatView: View {
                     Color.clear
                         .frame(height: 1)
                         .id(bottomAnchor)
+                        .onAppear { atBottom = true }
+                        .onDisappear { atBottom = false }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
-            .onAppear {
-                scrollToBottom(proxy)
-            }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: viewModel.messages.count) { _, _ in
-                scrollToBottom(proxy)
+                if atBottom || viewModel.messages.last?.role == .user { scrollToBottom(proxy) }
             }
             .onChange(of: viewModel.isThinking) { _, _ in
-                scrollToBottom(proxy)
+                if atBottom { scrollToBottom(proxy) }
             }
         }
     }
@@ -93,15 +128,12 @@ struct ChatView: View {
                 .font(.system(size: 32, weight: .semibold))
                 .foregroundColor(.secondary)
             Text("Ask about your notes")
-                .font(.title3)
-                .fontWeight(.semibold)
-            Text("Your captures will appear here once processed.")
-                .font(.footnote)
+                .font(AppTypography.title)
+            Text("Ask a question about completed notes in your Library.")
+                .font(AppTypography.callout)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            Text("Used sources stay hidden until expanded.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 40)
@@ -110,35 +142,45 @@ struct ChatView: View {
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: 12) {
             TextField("Ask about your notes", text: $viewModel.draft, axis: .vertical)
-                .lineLimit(1...4)
+                .lineLimit(1...6)
+                .accessibilityIdentifier("chatComposer")
                 .padding(12)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
+                .font(.body)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
                 .submitLabel(.send)
-                .onSubmit {
-                    viewModel.send()
-                }
-
+                .onSubmit { viewModel.send() }
             Button(action: viewModel.send) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.headline)
                     .frame(width: 44, height: 44)
-                    .background(
-                        viewModel.canSend ? Color.accentColor : Color.gray.opacity(0.35),
-                        in: Circle()
-                    )
-                    .foregroundColor(.white)
+                    .background(viewModel.canSend ? theme.accent : Color.secondary.opacity(0.3), in: Circle())
+                    .foregroundStyle(theme.scheme == .dark ? .black : .white)
             }
+            .accessibilityLabel("Send message")
             .disabled(!viewModel.canSend)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Divider()
+        .background(Color(uiColor: .systemBackground))
+    }
+
+    @ViewBuilder
+    private var readinessBanner: some View {
+        if viewModel.readiness != .ready && viewModel.readiness != .checking {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(viewModel.readiness.title, systemImage: "info.circle").font(.headline)
+                Text(viewModel.readiness.detail).font(.callout).foregroundStyle(.secondary)
+                switch viewModel.readiness {
+                case .noNotes: Button("Scan a page") { mode = .capture }
+                case .pending: Button("View pending scans") { pendingPresented = true }
+                case .setup: Button("Set up Gemini") { settingsRoute = .processing }
+                case .secureStorage: Button("Open Settings") { settingsRoute = .processing }
+                case .indexUnavailable: Button("Try Again") { Task { await viewModel.refreshReadiness(pendingCount: pending.count) } }
+                default: EmptyView()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
         }
     }
 
@@ -156,13 +198,12 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo(bottomAnchor, anchor: .bottom)
-        }
+        if reduceMotion { proxy.scrollTo(bottomAnchor, anchor: .bottom) }
+        else { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(bottomAnchor, anchor: .bottom) } }
     }
 
     private func handleApply(for message: ChatMessage) {
-        if advancedReviewBeforeApply {
+        if advancedReviewBeforeApply || viewModel.mustReviewMessageIds.contains(message.id) {
             reviewMessage = message
         } else {
             viewModel.applyFileOps(for: message)
@@ -203,6 +244,30 @@ struct ChatMessage: Identifiable, Equatable {
     }
 }
 
+enum ChatReadiness: Equatable {
+    case checking, ready, noNotes, pending, setup, secureStorage, indexUnavailable
+    var title: String {
+        switch self {
+        case .noNotes: return "Start with a page"
+        case .pending: return "Your pages are still processing"
+        case .setup: return "Set up Gemini to chat"
+        case .secureStorage: return "Secure key storage needs attention"
+        case .indexUnavailable: return "Search needs attention"
+        default: return "Ready to chat"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .noNotes: return "Capture or import pages to build your local Library."
+        case .pending: return "You can ask about completed notes once they are available. Check pending scans for paused or failed processing."
+        case .setup: return "Add an API key in Processing settings. Your draft stays here. Chat sends your question and selected note text to Gemini."
+        case .secureStorage: return "The API key could not be read securely. Open Settings to check your setup. Your draft is preserved."
+        case .indexUnavailable: return "Your notes are preserved. Try recovering local search before asking again."
+        default: return ""
+        }
+    }
+}
+
 final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var draft: String = ""
@@ -210,7 +275,14 @@ final class ChatViewModel: ObservableObject {
     @Published var applyingMessageIds: Set<UUID> = []
     @Published var appliedMessageIds: Set<UUID> = []
 
+    @Published var readiness: ChatReadiness = .checking
+    @Published var lastFailedQuery: String?
+    @Published var conflictingMessageIds: Set<UUID> = []
+    @Published var mustReviewMessageIds: Set<UUID> = []
+    var fixtureResponse: ((String) async throws -> ChatResponse)?
+    var applyOperations: (([VaultFileOperation], String) async throws -> VaultApplySummary)?
     private var agent: ChatAgent?
+    private var reviewNextResponse = false
     var preferredBatchId: UUID?
 
     init(agent: ChatAgent? = nil) {
@@ -224,6 +296,8 @@ final class ChatViewModel: ObservableObject {
     func send() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isThinking else { return }
+        guard readiness == .ready else { return }
+        lastFailedQuery = nil
         draft = ""
         messages.append(ChatMessage(role: .user, text: trimmed))
         isThinking = true
@@ -234,6 +308,8 @@ final class ChatViewModel: ObservableObject {
             let response = await self.respond(to: trimmed, preferredBatchId: batchId)
             await MainActor.run {
                 self.messages.append(response)
+                if self.reviewNextResponse && !response.fileOps.isEmpty { self.mustReviewMessageIds.insert(response.id) }
+                self.reviewNextResponse = false
                 self.isThinking = false
             }
         }
@@ -241,8 +317,9 @@ final class ChatViewModel: ObservableObject {
 
     private func respond(to query: String, preferredBatchId: UUID?) async -> ChatMessage {
         do {
-            let agent = try ensureAgent()
-            let response = try await agent.respond(to: query, preferredBatchId: preferredBatchId)
+            let response: ChatResponse
+            if let fixtureResponse { response = try await fixtureResponse(query) }
+            else { response = try await ensureAgent().respond(to: query, preferredBatchId: preferredBatchId) }
             return ChatMessage(
                 role: .assistant,
                 text: response.answer,
@@ -252,10 +329,13 @@ final class ChatViewModel: ObservableObject {
                 warnings: response.warnings
             )
         } catch let error as GeminiClientError {
+            await MainActor.run { self.lastFailedQuery = query }
             return ChatMessage(role: .assistant, text: chatErrorMessage(error), grounded: false)
         } catch let error as ChatAgentError {
+            await MainActor.run { self.lastFailedQuery = query }
             return ChatMessage(role: .assistant, text: error.localizedDescription, grounded: false)
         } catch {
+            await MainActor.run { self.lastFailedQuery = query }
             return ChatMessage(
                 role: .assistant,
                 text: "Something went wrong. Please try again.",
@@ -266,7 +346,7 @@ final class ChatViewModel: ObservableObject {
 
     func applyFileOps(for message: ChatMessage) {
         guard !message.fileOps.isEmpty else { return }
-        guard !applyingMessageIds.contains(message.id) else { return }
+        guard !applyingMessageIds.contains(message.id), !appliedMessageIds.contains(message.id), !conflictingMessageIds.contains(message.id) else { return }
         applyingMessageIds.insert(message.id)
         let messageId = message.id
         let fileOps = message.fileOps
@@ -274,17 +354,20 @@ final class ChatViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let summary = try await VaultApplyService.apply(fileOps)
+                let summary: VaultApplySummary
+                if let applyOperations { summary = try await applyOperations(fileOps, "chat:\(messageId.uuidString)") }
+                else { summary = try await VaultApplyService.apply(fileOps, operationID: "chat:\(messageId.uuidString)") }
                 let successMessage = applySummaryMessage(summary)
                 await MainActor.run {
                     self.applyingMessageIds.remove(messageId)
                     self.appliedMessageIds.insert(messageId)
                     self.messages.append(ChatMessage(role: .assistant, text: successMessage, grounded: true))
                 }
-                await SyncCoordinator.shared.syncIfNeeded(trigger: .applyToVault)
+                if self.applyOperations == nil { await SyncCoordinator.shared.syncIfNeeded(trigger: .applyToVault) }
             } catch {
                 await MainActor.run {
                     self.applyingMessageIds.remove(messageId)
+                    if let storageError = error as? VaultRepositoryError, case .staleRevision = storageError { self.conflictingMessageIds.insert(messageId) }
                     self.messages.append(
                         ChatMessage(
                             role: .assistant,
@@ -295,6 +378,38 @@ final class ChatViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    @MainActor
+    func refreshReadiness(pendingCount: Int) async {
+        if DesignFixture.current != nil { return }
+        if !isThinking { agent = nil }
+        let setup = await Task.detached { GeminiSetupStatus.inspect() }.value
+        do {
+            let notes = try await LibraryStore.makeDefault().notes(query: "", limit: 1)
+            if notes.isEmpty { readiness = pendingCount > 0 ? .pending : .noNotes }
+            else {
+                switch setup {
+                case .ready: readiness = .ready
+                case .missingKey: readiness = .setup
+                case .secureStorageUnavailable: readiness = .secureStorage
+                }
+            }
+        } catch { readiness = .indexUnavailable }
+    }
+
+    func retryResponse() {
+        guard let query = lastFailedQuery else { return }
+        draft = query
+        send()
+    }
+
+    func refreshProposal(for message: ChatMessage) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }),
+              let query = messages[..<index].last(where: { $0.role == .user })?.text else { return }
+        reviewNextResponse = true
+        draft = query
+        send()
     }
 
     private func applySummaryMessage(_ summary: VaultApplySummary) -> String {
@@ -338,6 +453,7 @@ final class ChatViewModel: ObservableObject {
 
 struct MessageRow: View {
     let message: ChatMessage
+    @Environment(\.themeColors) private var theme
     @Binding var isSourcesExpanded: Bool
     let reviewEnabled: Bool
     let onApply: (() -> Void)?
@@ -374,8 +490,8 @@ struct MessageRow: View {
 
     private var bubble: some View {
         Text(message.text)
-            .font(.body)
-            .foregroundColor(message.role == .user ? .white : .primary)
+            .font(AppTypography.body)
+            .foregroundColor(message.role == .user ? (theme.scheme == .dark ? .black : .white) : theme.ink)
             .textSelection(.enabled)
             .padding(12)
             .background(bubbleBackground)
@@ -384,13 +500,16 @@ struct MessageRow: View {
     }
 
     private var bubbleBackground: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(message.role == .user ? Color.accentColor : Color(.systemBackground))
+        let bubbleStyle = message.role == .user
+            ? AnyShapeStyle(theme.accent)
+            : AnyShapeStyle(theme.surfaceStrong)
+        return RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(bubbleStyle)
     }
 
     private var bubbleBorder: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(message.role == .assistant ? Color.primary.opacity(0.08) : .clear, lineWidth: 1)
+            .stroke(message.role == .assistant ? theme.glassBorder : .clear, lineWidth: 1)
     }
 }
 
@@ -410,12 +529,12 @@ struct SourcesDisclosure: View {
             HStack(spacing: 8) {
                 Text("Used sources")
                 Text("\(sources.count)")
-                    .font(.caption2)
+                    .font(AppTypography.caption)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color(.systemGray5), in: Capsule())
+                    .background(Color.white.opacity(0.5), in: Capsule())
             }
-            .font(.footnote)
+            .font(AppTypography.caption)
             .foregroundColor(.secondary)
         }
         .tint(.secondary)
@@ -424,6 +543,7 @@ struct SourcesDisclosure: View {
 
 struct ApplyToVaultCard: View {
     let fileCount: Int
+    @Environment(\.themeColors) private var theme
     let reviewEnabled: Bool
     let isApplying: Bool
     let isApplied: Bool
@@ -449,10 +569,10 @@ struct ApplyToVaultCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Proposed changes")
-                .font(.footnote)
+                .font(AppTypography.caption)
                 .foregroundColor(.secondary)
             Text(fileLabel)
-                .font(.caption)
+                .font(AppTypography.caption)
                 .foregroundColor(.secondary)
             Button(action: action) {
                 HStack(spacing: 8) {
@@ -460,70 +580,56 @@ struct ApplyToVaultCard: View {
                         ProgressView()
                     }
                     Text(buttonTitle)
-                        .font(.subheadline)
+                        .font(AppTypography.callout)
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .tint(theme.accent)
             .disabled(isApplying || isApplied)
         }
         .padding(12)
-        .background(Color(.systemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+        .background(theme.surfaceStrong.opacity(0.85), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 
 struct SourceRow: View {
     let source: ContextSource
+    @Environment(\.themeColors) private var theme
     @Environment(\.openURL) private var openURL
-
-    private var vaultFileURL: URL? {
-        VaultLocation.fileURL(relativePath: source.path)
-    }
-
-    private var canOpen: Bool {
-        guard let vaultFileURL else { return false }
-        return FileManager.default.fileExists(atPath: vaultFileURL.path)
-    }
-
-    private func openSource() {
-        guard let vaultFileURL else { return }
-        guard let decryptedURL = VaultFileStore.decryptedCopyURL(for: vaultFileURL, relativePath: source.path) else { return }
-        openURL(decryptedURL)
-    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.title)
-                    .font(.subheadline)
+                    .font(AppTypography.callout)
                     .fontWeight(.semibold)
-                    .foregroundColor(.primary)
+                    .foregroundColor(theme.ink)
                 Text(source.path)
-                    .font(.caption)
+                    .font(AppTypography.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
             Spacer()
-            Button("Open") {
-                openSource()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!canOpen)
+            NavigationLink("Open") { NoteDetailView(path: source.path) }
+                .buttonStyle(.bordered)
+
         }
         .padding(10)
-        .background(Color(.systemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .background(theme.surfaceStrong.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
 struct TypingIndicatorRow: View {
+    @Environment(\.themeColors) private var theme
+
     var body: some View {
         HStack {
             TypingIndicator()
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(theme.surfaceStrong.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             Spacer()
         }
         .accessibilityLabel("Assistant typing")
@@ -531,38 +637,7 @@ struct TypingIndicatorRow: View {
 }
 
 struct TypingIndicator: View {
-    @State private var isAnimating = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(Color.secondary)
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(isAnimating ? 1 : 0.5)
-                    .opacity(isAnimating ? 1 : 0.4)
-                    .animation(
-                        .easeInOut(duration: 0.6)
-                            .repeatForever()
-                            .delay(Double(index) * 0.2),
-                        value: isAnimating
-                    )
-            }
-        }
-        .onAppear { isAnimating = true }
-        .onDisappear { isAnimating = false }
-    }
-}
-
-private enum VaultLocation {
-    static func fileURL(relativePath: String) -> URL? {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return documentsURL
-            .appendingPathComponent("vault", isDirectory: true)
-            .appendingPathComponent(relativePath)
-    }
+    var body: some View { ProgressView("Thinking…") }
 }
 
 @MainActor
@@ -589,5 +664,6 @@ extension ChatViewModel {
 }
 
 #Preview {
-    ChatView(viewModel: .preview)
+    ChatView(mode: .constant(.chat), viewModel: .preview)
+        .environmentObject(SyncStatusStore.shared)
 }

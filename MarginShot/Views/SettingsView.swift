@@ -62,10 +62,30 @@ extension ProcessingQualityMode {
     }
 }
 
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case processing = "Processing", backup = "Backup", privacy = "Privacy & Data", organization = "Organization", advanced = "Advanced"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .processing: return "sparkles"
+        case .backup: return "externaldrive"
+        case .privacy: return "lock.shield"
+        case .organization: return "books.vertical"
+        case .advanced: return "slider.horizontal.3"
+        }
+    }
+}
+
 struct SettingsView: View {
+    @State private var path: [SettingsSection]
+    @State private var notebooksPresented = false
+    @AppStorage("selectedNotebookId") private var selectedNotebookId = ""
+
+    init(section: SettingsSection? = nil) {
+        _path = State(initialValue: section.map { [$0] } ?? [])
+    }
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var syncStatus: SyncStatusStore
-    @StateObject private var performanceStore = PerformanceMetricsStore.shared
 
     @AppStorage("processingAutoProcessInbox") private var autoProcessInbox = true
     @AppStorage("processingQualityMode") private var processingQualityModeRaw = ProcessingQualityMode.balanced.rawValue
@@ -147,9 +167,38 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             settingsForm
                 .navigationTitle("Settings")
+                .navigationDestination(for: SettingsSection.self) { section in
+                    Form {
+                        switch section {
+                        case .processing: processingSection; geminiSection
+                        case .backup:
+                            syncStatusBanner
+                            syncSection
+                            if syncDestination.wrappedValue != .off {
+                                Section {
+                                    Button("Back up now") {
+                                        guard DesignFixture.current == nil else { return }
+                                        Task { await SyncCoordinator.shared.syncIfNeeded(trigger: .manual) }
+                                    }.disabled(syncStatus.state == .syncing)
+                                }
+                            }
+                        case .privacy: privacySection; exportSection
+                        case .organization: organizationSection
+                        case .advanced:
+                            advancedSection
+                            #if DEBUG
+                            NavigationLink("Support diagnostics") {
+                                if DesignFixture.current != nil { Text("No diagnostic measurements in this fixture.") }
+                                else { SupportDiagnosticsView() }
+                            }
+                            #endif
+                        }
+                    }
+                    .navigationTitle(section.rawValue)
+                }
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") {
@@ -159,11 +208,13 @@ struct SettingsView: View {
                 }
         }
         .onAppear {
+            guard DesignFixture.current == nil else { return }
             syncStatus.refreshDestination()
             refreshGeminiAPIKeyStatus()
             refreshGitHubStatus()
         }
         .onChange(of: syncDestinationRaw) { _, newValue in
+            guard DesignFixture.current == nil else { return }
             let resolved = SyncDestination(rawValue: newValue) ?? .off
             syncStatus.updateDestination(resolved)
             if resolved == .folder, syncFolderDisplayName.isEmpty {
@@ -180,16 +231,19 @@ struct SettingsView: View {
             }
         }
         .onChange(of: autoProcessInbox) { _, newValue in
+            guard DesignFixture.current == nil else { return }
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
         .onChange(of: privacySendImagesToLLM) { _, newValue in
+            guard DesignFixture.current == nil else { return }
             if newValue {
                 ProcessingQueue.shared.enqueuePendingProcessing()
             }
         }
         .onChange(of: privacyLocalEncryptionEnabled) { _, newValue in
+            guard DesignFixture.current == nil else { return }
             VaultEncryptionManager.handleSettingChange(enabled: newValue)
             if !newValue {
                 isShowingEncryptionDisabledNotice = true
@@ -268,19 +322,25 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         Form {
+            Section {
+                ForEach(SettingsSection.allCases) { section in
+                    NavigationLink(value: section) { Label(section.rawValue, systemImage: section.icon) }
+                }
+            }
+            Section("Backup status") {
+                NavigationLink(value: SettingsSection.backup) { SyncStatusView(state: syncStatus.state) }
+                if let lastSync = syncStatus.lastSyncAt { Text("Last backed up \(lastSync.formatted())").font(.footnote).foregroundStyle(.secondary) }
+            }
             syncStatusBanner
-            processingSection
-            syncSection
-            organizationSection
-            privacySection
-            performanceSection
-            advancedSection
+        }
+        .sheet(isPresented: $notebooksPresented) {
+            NotebookPickerView(selectedNotebookId: Binding(get: { UUID(uuidString: selectedNotebookId) }, set: { selectedNotebookId = $0?.uuidString ?? "" }))
         }
     }
 
     private var processingSection: some View {
         Section {
-            Toggle("Auto-process inbox", isOn: $autoProcessInbox)
+            Toggle("Automatically process pending scans", isOn: $autoProcessInbox)
             Picker("Quality mode", selection: processingQualityMode) {
                 ForEach(ProcessingQualityMode.allCases, id: \.self) { mode in
                     Text(mode.title).tag(mode)
@@ -363,9 +423,9 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Sync")
+            Text("Backup")
         } footer: {
-            Text("Sync stays off until you choose a destination. Runs after processing and apply-to-vault.")
+            Text("Backup stays off until you choose a destination. Pending changes retry when your connection and charging settings allow.")
         }
     }
 
@@ -379,19 +439,17 @@ struct SettingsView: View {
             Toggle("Linking", isOn: $organizationLinkingEnabled)
             Toggle("Task extraction", isOn: $organizationTaskExtractionEnabled)
             Toggle("Topic pages", isOn: $organizationTopicPagesEnabled)
-            NavigationLink("Edit System Rules") {
-                SystemRulesEditorView()
-            }
+            Button("Manage notebooks") { notebooksPresented = true }
         } header: {
             Text("Organization")
         } footer: {
-            Text("Tune how notes are structured and connected. Manage notebooks and overrides from Capture.")
+            Text("Tune how notes are structured and connected. Notebook instructions apply to the next captured batch.")
         }
     }
 
-    private var privacySection: some View {
+    private var geminiSection: some View {
         Section {
-            Toggle("Send images to LLM", isOn: $privacySendImagesToLLM)
+            Toggle("Process scans with Gemini", isOn: $privacySendImagesToLLM)
             VStack(alignment: .leading, spacing: 8) {
                 SecureField("Gemini API key", text: $geminiAPIKeyDraft)
                     .textInputAutocapitalization(.never)
@@ -419,55 +477,35 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Toggle("Local encryption", isOn: $privacyLocalEncryptionEnabled)
-        } header: {
-            Text("Privacy")
-        } footer: {
-            Text("When enabled, page images are sent to the LLM provider for transcription. Turn this off to keep images on device; scans stay in the inbox until re-enabled.")
+        } header: { Text("Gemini setup") } footer: {
+            Text("When enabled, page images are sent to Gemini to transcribe and organize notes. When off, scans remain local and pending. Chat separately sends questions and selected note text to Gemini.")
         }
     }
 
-    private var performanceSection: some View {
+    private var privacySection: some View {
         Section {
-            ForEach(PerformanceMetric.primaryMetrics) { metric in
-                PerformanceMetricRow(
-                    metric: metric,
-                    valueText: performanceStore.formattedValue(for: metric),
-                    targetText: performanceStore.formattedTarget(for: metric),
-                    status: performanceStore.status(for: metric)
-                )
-            }
-            Button("Reset metrics") {
-                performanceStore.reset()
-            }
-        } header: {
-            Text("Performance")
+            Toggle("Local encryption", isOn: $privacyLocalEncryptionEnabled)
+        } header: { Text("Privacy & Data") } footer: {
+            Text("Local encryption protects vault files with a device-only key. Turning this off does not decrypt older files. Processing and chat may send content to Gemini; backup is a separate choice.")
+        }
+    }
+
+    private var exportSection: some View {
+        Section {
+            Button(isExportingVaultZip ? "Preparing export…" : "Export notes") { exportVaultZip() }
+                .disabled(isExportingVaultZip)
+            if isExportingVaultZip { ProgressView("Preparing export…") }
+            if let vaultZipError { Label(vaultZipError, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
         } footer: {
-            Text("Targets align with the performance budgets in SPECS.")
+            Text("Export includes Markdown notes and original pages. Encrypted files stay encrypted in the ZIP. The device-only key is excluded, so this is not a cross-device encryption recovery copy.")
         }
     }
 
     private var advancedSection: some View {
         Section {
             Toggle("Review changes before applying", isOn: $advancedReviewBeforeApply)
-            Toggle("Enable ZIP export", isOn: $advancedEnableZipExport)
-            if advancedEnableZipExport {
-                Button(isExportingVaultZip ? "Preparing ZIP..." : "Export vault as ZIP") {
-                    exportVaultZip()
-                }
-                .buttonStyle(.bordered)
-                .disabled(isExportingVaultZip)
-                if let vaultZipError {
-                    Text(vaultZipError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } header: {
-            Text("Advanced")
-        } footer: {
-            Text("Extra controls for power users.")
-        }
+            NavigationLink("System rules") { SystemRulesEditorView() }
+        } header: { Text("Advanced") }
     }
 
     private var canSaveGeminiAPIKey: Bool {
@@ -475,8 +513,10 @@ struct SettingsView: View {
     }
 
     private func refreshGeminiAPIKeyStatus() {
-        hasGeminiAPIKey = KeychainStore.readString(forKey: KeychainStore.geminiAPIKeyKey) != nil
-        geminiAPIKeyStatus = nil
+        guard DesignFixture.current == nil else { return }
+        let status = GeminiSetupStatus.inspect()
+        hasGeminiAPIKey = status == .ready
+        geminiAPIKeyStatus = status == .secureStorageUnavailable ? "Secure key storage could not be read. Check device access, then try saving your key again." : nil
     }
 
     private func exportVaultZip() {
@@ -484,7 +524,7 @@ struct SettingsView: View {
         vaultZipError = nil
         Task {
             do {
-                let zipURL = try createVaultZip()
+                let zipURL = try await Task.detached(priority: .userInitiated) { try createVaultZip() }.value
                 await MainActor.run {
                     vaultZipURL = zipURL
                     isShowingZipShare = true
@@ -500,6 +540,7 @@ struct SettingsView: View {
     }
 
     private func createVaultZip() throws -> URL {
+        if DesignFixture.current?.state == "export-error" { throw VaultZipExportError.vaultUnavailable }
         let vaultURL = try vaultRootURL()
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: vaultURL.path, isDirectory: &isDirectory),
@@ -511,7 +552,9 @@ struct SettingsView: View {
         if FileManager.default.fileExists(atPath: zipURL.path) {
             try FileManager.default.removeItem(at: zipURL)
         }
-        try ZipArchiveWriter.zipItem(at: vaultURL, to: zipURL, shouldKeepParent: true)
+        try VaultRepository.register(rootURL: vaultURL).withAccess {
+            try ZipArchiveWriter.zipItem(at: vaultURL, to: zipURL, shouldKeepParent: true)
+        }
         return zipURL
     }
 
@@ -523,6 +566,7 @@ struct SettingsView: View {
     }
 
     private func vaultRootURL() throws -> URL {
+        if let fixture = DesignFixture.current { return fixture.root }
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw VaultZipExportError.vaultUnavailable
         }
@@ -543,6 +587,7 @@ struct SettingsView: View {
     }
 
     private func saveGeminiAPIKey() {
+        guard DesignFixture.current == nil else { return }
         let trimmed = geminiAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
@@ -556,6 +601,7 @@ struct SettingsView: View {
     }
 
     private func clearGeminiAPIKey() {
+        guard DesignFixture.current == nil else { return }
         do {
             try KeychainStore.delete(forKey: KeychainStore.geminiAPIKeyKey)
             hasGeminiAPIKey = false
@@ -566,6 +612,7 @@ struct SettingsView: View {
     }
 
     private func refreshGitHubStatus() {
+        guard DesignFixture.current == nil else { return }
         let hasToken = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) != nil
         hasGitHubToken = hasToken
         guard hasToken, gitHubUserLogin.isEmpty else { return }
@@ -575,6 +622,7 @@ struct SettingsView: View {
     }
 
     private func signInGitHub() {
+        guard DesignFixture.current == nil else { return }
         isSigningInToGitHub = true
         gitHubAuthStatus = nil
         Task {
@@ -600,6 +648,7 @@ struct SettingsView: View {
     }
 
     private func signOutGitHub() {
+        guard DesignFixture.current == nil else { return }
         do {
             try KeychainStore.delete(forKey: KeychainStore.githubAccessTokenKey)
             gitHubAuthStatus = nil
@@ -613,7 +662,7 @@ struct SettingsView: View {
     }
 
     private func clearGitHubRepoSelection() {
-        let defaults = UserDefaults.standard
+        let defaults = PresentationDefaults.current
         if !gitHubRepoOwner.isEmpty, !gitHubRepoName.isEmpty {
             let lastSyncKey = GitHubDefaults.lastSyncAtKey(
                 owner: gitHubRepoOwner,
@@ -661,11 +710,11 @@ struct SettingsView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
-                        Text("Sync needs attention")
+                        Text("Backup needs attention")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
-                    Text(syncStatus.lastErrorMessage ?? "Sync failed. Try again.")
+                    Text(syncStatus.lastErrorMessage ?? "Backup failed. Try again.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button("Retry now") {
@@ -712,7 +761,7 @@ private enum ZipArchiveWriterError: LocalizedError {
     }
 }
 
-private struct ZipArchiveWriter {
+struct ZipArchiveWriter {
     private struct ZipEntry {
         let path: String
         let isDirectory: Bool
@@ -790,7 +839,8 @@ private struct ZipArchiveWriter {
 
         guard let enumerator = fileManager.enumerator(
             at: sourceURL,
-            includingPropertiesForKeys: Array(resourceKeys)
+            includingPropertiesForKeys: Array(resourceKeys),
+            options: [.skipsHiddenFiles]
         ) else {
             return entries
         }
@@ -998,6 +1048,32 @@ private enum CRC32 {
 
         return (crc ^ 0xFFFFFFFF, UInt32(size))
     }
+}
+
+private struct SupportDiagnosticsView: View {
+    @StateObject private var performanceStore = PerformanceMetricsStore.shared
+    var body: some View { Form { performanceSection }.navigationTitle("Diagnostics") }
+
+    private var performanceSection: some View {
+        Section {
+            ForEach(PerformanceMetric.primaryMetrics) { metric in
+                PerformanceMetricRow(
+                    metric: metric,
+                    valueText: performanceStore.formattedValue(for: metric),
+                    targetText: performanceStore.formattedTarget(for: metric),
+                    status: performanceStore.status(for: metric)
+                )
+            }
+            Button("Reset metrics") {
+                if DesignFixture.current == nil { performanceStore.reset() }
+            }
+        } header: {
+            Text("Performance")
+        } footer: {
+            Text("Local performance measurements for support.")
+        }
+    }
+
 }
 
 private struct PerformanceMetricRow: View {

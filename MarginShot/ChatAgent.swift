@@ -3,11 +3,14 @@ import Foundation
 enum ChatAgentError: Error, LocalizedError {
     case emptyQuery
     case invalidResponse
+    case indexUnavailable
 
     var errorDescription: String? {
         switch self {
         case .emptyQuery:
             return "Chat query is empty."
+        case .indexUnavailable:
+            return "Search could not be read. Your notes are preserved. Try again to recover local search."
         case .invalidResponse:
             return "Chat response could not be decoded."
         }
@@ -68,6 +71,7 @@ final class ChatAgent {
             PerformanceMetricsStore.shared.recordDuration(.chatRetrievalLatency, seconds: retrievalDuration)
         }
 
+        if context.retrievalStatus == "indexUnavailable" { throw ChatAgentError.indexUnavailable }
         guard !context.sources.isEmpty else {
             return fallbackResponse(warnings: ["No matching sources found in the vault."])
         }
@@ -92,7 +96,7 @@ final class ChatAgent {
 
         do {
             let decoded = try JSONResponseParser.decode(ChatResponsePayload.self, from: response.text)
-            return finalizeResponse(decoded.value, context: context)
+            return try finalizeResponse(decoded.value, context: context)
         } catch {
             throw ChatAgentError.invalidResponse
         }
@@ -108,7 +112,7 @@ final class ChatAgent {
         )
     }
 
-    private func finalizeResponse(_ payload: ChatResponsePayload, context: ContextBundle) -> ChatResponse {
+    private func finalizeResponse(_ payload: ChatResponsePayload, context: ContextBundle) throws -> ChatResponse {
         let sourceLookup = Dictionary(uniqueKeysWithValues: context.sources.map { ($0.path, $0) })
         var warnings = payload.warnings
         var usedSources: [ContextSource] = []
@@ -138,7 +142,7 @@ final class ChatAgent {
             answer: answer,
             grounded: true,
             usedSources: usedSources,
-            fileOps: payload.fileOps,
+            fileOps: try VaultProposal.bind(payload.fileOps, to: context),
             warnings: warnings
         )
     }

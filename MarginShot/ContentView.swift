@@ -4,6 +4,7 @@ import SwiftUI
 
 enum AppMode: String, CaseIterable, Identifiable {
     case capture
+    case library
     case chat
 
     var id: String { rawValue }
@@ -12,6 +13,8 @@ enum AppMode: String, CaseIterable, Identifiable {
         switch self {
         case .capture:
             return "Capture"
+        case .library:
+            return "Library"
         case .chat:
             return "Chat"
         }
@@ -22,56 +25,93 @@ struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedMode: AppMode = .capture
     @State private var preferredBatchId: UUID?
+    @State private var importRequested = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.themeColors) private var theme
     @EnvironmentObject private var syncStatus: SyncStatusStore
 
     var body: some View {
-        Group {
+        ZStack {
+            theme.backgroundGradient
+                .ignoresSafeArea()
             if hasCompletedOnboarding {
-                VStack(spacing: 0) {
-                    HeaderView(mode: selectedMode, syncState: syncStatus.state)
-                    TabView(selection: $selectedMode) {
-                        CaptureView { batchId in
+                TabView(selection: $selectedMode) {
+                    NavigationStack {
+                        CaptureView(mode: $selectedMode, importRequested: $importRequested) { batchId in
                             preferredBatchId = batchId
                             selectedMode = .chat
                         }
-                            .tag(AppMode.capture)
-                        ChatView(preferredBatchId: $preferredBatchId)
-                            .tag(AppMode.chat)
+                        .navigationTitle("Capture")
+                        .navigationBarTitleDisplayMode(.inline)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .tabItem { Label("Capture", systemImage: "camera") }
+                    .tag(AppMode.capture)
+                    NavigationStack {
+                        LibraryView(mode: $selectedMode, importRequested: $importRequested)
+                    }
+                    .tabItem { Label("Library", systemImage: "books.vertical") }
+                    .tag(AppMode.library)
+                    NavigationStack {
+                        ChatView(mode: $selectedMode, preferredBatchId: $preferredBatchId)
+                            .navigationTitle("Chat")
+                    }
+                    .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+                    .tag(AppMode.chat)
                 }
-                .animation(.easeInOut(duration: 0.2), value: selectedMode)
+                .tint(theme.accent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             } else {
-                OnboardingView(isComplete: $hasCompletedOnboarding)
+                OnboardingView(isComplete: $hasCompletedOnboarding) { importRequested = true }
             }
         }
         .onAppear {
-            syncStatus.refreshDestination()
-            VaultFileStore.cleanupDecryptedCopies()
+            if DesignFixture.current == nil { syncStatus.refreshDestination() }
+            if DesignFixture.current == nil { VaultFileStore.cleanupDecryptedCopies() }
         }
         .task(id: hasCompletedOnboarding) {
-            guard hasCompletedOnboarding else { return }
-            do {
-                try VaultBootstrapper.bootstrapIfNeeded()
-                VaultEncryptionManager.startIfNeeded()
-                ProcessingQueue.shared.enqueuePendingProcessing()
-            } catch {
-                print("Vault bootstrap failed: \(error)")
+            guard hasCompletedOnboarding, DesignFixture.current == nil else { return }
+            let bootstrapStart = CFAbsoluteTimeGetCurrent()
+            print("⏱️ [PERF] Starting vault bootstrap...")
+            Task.detached {
+                do {
+                    let bootStart = CFAbsoluteTimeGetCurrent()
+                    try await Task.detached {
+                        try VaultBootstrapper.bootstrapIfNeeded()
+                    }.value
+                    let bootTime = (CFAbsoluteTimeGetCurrent() - bootStart) * 1000
+                    print("⏱️ [PERF] VaultBootstrapper.bootstrapIfNeeded took \(bootTime)ms")
+
+                    await MainActor.run {
+                        let encStart = CFAbsoluteTimeGetCurrent()
+                        VaultEncryptionManager.startIfNeeded()
+                        let encTime = (CFAbsoluteTimeGetCurrent() - encStart) * 1000
+                        print("⏱️ [PERF] VaultEncryptionManager.startIfNeeded took \(encTime)ms")
+
+                        let queueStart = CFAbsoluteTimeGetCurrent()
+                        ProcessingQueue.shared.enqueuePendingProcessing()
+                        let queueTime = (CFAbsoluteTimeGetCurrent() - queueStart) * 1000
+                        print("⏱️ [PERF] ProcessingQueue.enqueuePendingProcessing took \(queueTime)ms")
+
+                        let totalTime = (CFAbsoluteTimeGetCurrent() - bootstrapStart) * 1000
+                        print("⏱️ [PERF] TOTAL ContentView task took \(totalTime)ms")
+                    }
+                } catch {
+                    print("Vault bootstrap failed: \(error)")
+                }
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                VaultFileStore.cleanupDecryptedCopies()
+                if DesignFixture.current == nil { VaultFileStore.cleanupDecryptedCopies() }
             }
-            guard hasCompletedOnboarding else { return }
+            guard hasCompletedOnboarding, DesignFixture.current == nil else { return }
             switch phase {
             case .active:
                 ProcessingQueue.shared.enqueuePendingProcessing()
             case .background:
                 ProcessingQueue.shared.scheduleBackgroundProcessing()
+                SyncBackgroundScheduler.schedule()
             default:
                 break
             }
@@ -82,10 +122,12 @@ struct ContentView: View {
 struct VaultBootstrapper {
     private static let vaultFolderName = "vault"
 
-    static func bootstrapIfNeeded() throws {
-        let rootURL = try vaultRootURL()
+    static func bootstrapIfNeeded(userDefaults: UserDefaults = .standard, rootURL: URL? = nil) throws {
+        let rootURL = try rootURL ?? vaultRootURL()
+        let repository = VaultRepository.register(rootURL: rootURL, userDefaults: userDefaults)
+        try repository.recover()
         try createDirectoryIfNeeded(at: rootURL)
-        let style = OrganizationPreferences().style
+        let style = OrganizationPreferences(userDefaults: userDefaults).style
 
         for directory in vaultDirectories(style: style) {
             let directoryURL = rootURL.appendingPathComponent(directory, isDirectory: true)
@@ -95,15 +137,18 @@ struct VaultBootstrapper {
         let systemDirectoryURL = rootURL.appendingPathComponent("_system", isDirectory: true)
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("SYSTEM.md"),
-            contents: SystemRulesStore.defaultRules
+            contents: SystemRulesStore.defaultRules,
+            userDefaults: userDefaults
         )
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("INDEX.json"),
-            contents: defaultIndexJSON
+            contents: defaultIndexJSON,
+            userDefaults: userDefaults
         )
         try writeFileIfNeeded(
             at: systemDirectoryURL.appendingPathComponent("STRUCTURE.txt"),
-            contents: defaultStructureText(style: style)
+            contents: defaultStructureText(style: style),
+            userDefaults: userDefaults
         )
     }
 
@@ -123,9 +168,9 @@ struct VaultBootstrapper {
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
     }
 
-    private static func writeFileIfNeeded(at url: URL, contents: String) throws {
+    private static func writeFileIfNeeded(at url: URL, contents: String, userDefaults: UserDefaults) throws {
         guard !FileManager.default.fileExists(atPath: url.path) else { return }
-        try VaultFileStore.writeText(contents, to: url)
+        try VaultFileStore.writeText(contents, to: url, userDefaults: userDefaults)
     }
 
     private static let defaultIndexJSON = """

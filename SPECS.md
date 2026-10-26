@@ -1,10 +1,11 @@
 # specification.md — “Paper → AI → Your Vault” (iOS)
 
 ## 0. Summary
-Build a **super-simple iOS app** with two swipeable modes:
+Build a **super-simple iOS app** with three stable native destinations:
 
 1) **Capture**: a “scanner camera” for notebook pages (fast, offline-friendly).
-2) **Chat**: a plain LLM chat that can answer questions using your captured notes (“docs”).
+2) **Library**: read-only browsing and local search of completed notes and verified original pages.
+3) **Chat**: a plain LLM chat that can answer questions using your captured notes (“docs”).
 
 Behind the scenes, the app:
 - Stores scans locally, processes them with an LLM (Gemini) to **transcribe + structure + link**.
@@ -61,17 +62,16 @@ Behind the scenes, the app:
 ## 4. UX: App structure
 
 ### Navigation
-- The app is a **two-page horizontal swipe** container:
-  - **Left:** Capture
-  - **Right:** Chat
-- Minimal header shows current mode (“Capture” / “Chat”) and a subtle sync status icon.
+- Native labeled tabs: **Capture**, **Library**, **Chat**, in that order.
+- Capture is the launch destination. Each tab retains its navigation, batch, and draft state.
+- Settings is reachable from every destination; backup status remains secondary and actionable.
 
 ### 4.1 Capture mode (primary screen)
 **Primary UI elements**
 - Live camera view with scanner-style auto-detect.
 - Big shutter button.
-- Small “Batch mode” toggle (default ON).
-- Small “Inbox count” indicator (e.g., “Inbox: 12”).
+- Import Photos via a system selection picker; a batch stays open until Finish.
+- Recent page count and access to pending scans.
 
 **Secondary actions** (hidden behind a single “⋯” button)
 - Review Inbox
@@ -89,9 +89,9 @@ Behind the scenes, the app:
 #### Capture flow (happy path)
 1. Open app → Capture screen.
 2. User scans 1+ pages (batch).
-3. Tap “Done”.
+3. Tap “Finish”.
 4. App shows a small confirmation: “Saved. Processing when ready.”
-5. User swipes to Chat to ask questions.
+5. User selects Chat to ask questions.
 
 ### 4.2 Chat mode (primary screen)
 **Plain chat UI**
@@ -259,28 +259,14 @@ Sync is modeled as a **Destination** with a simple user mental model:
 ---
 
 ## 7. Settings (where complexity lives)
-Settings are grouped as:
-1. **Sync**
-   - Destination: Off / Folder / GitHub / Custom Git Remote
-   - Account / auth
-   - Sync conditions: Wi‑Fi only, charging only
-2. **Organization**
-   - Style: “Simple folders” vs “Johnny.Decimal”
-   - Linking: On/Off
-   - Task extraction: On/Off
-   - Topic pages (MOCs): On/Off
-   - “Edit System Rules” (advanced)
-3. **Processing**
-   - Auto-process inbox: On/Off
-   - Quality mode: Fast / Balanced / Best (controls LLM passes)
-4. **Privacy**
-   - “Send images to LLM” toggle + explanation
-   - Redaction options (optional later)
-   - Local encryption toggle (if supported)
-5. **Advanced**
-   - Review changes before applying
-   - Export vault as ZIP
-   - Reset indices / reprocess all
+Settings use native grouped forms with focused destinations:
+1. **Processing**: Gemini key setup/status, explicit **Process scans with Gemini** permission, automatic processing, quality, Wi-Fi and charging constraints. Image permission does not disable text-only chat requests.
+2. **Backup**: destination (Off / Folder / GitHub / existing Custom Git Remote option), account and folder configuration, actual backup status, **Back up now**, Wi-Fi and charging constraints. No destination is enabled automatically.
+3. **Privacy & Data**: local encryption and direct **Export notes**, with progress/error feedback. Encrypted ZIP files retain ciphertext and exclude the device-only key. Turning encryption off does not decrypt existing files.
+4. **Organization**: folder style, linking, task extraction, topic pages, and notebook management. Notebook instructions have a labeled editor and visible save feedback.
+5. **Advanced**: review-before-apply and system rules. Support diagnostics are available only in Debug builds.
+
+Existing preference keys and recorded values are retained. Export no longer requires a visibility toggle.
 
 ---
 
@@ -375,21 +361,17 @@ This prevents “LLM wrote something but we can’t apply it safely”.
 ## 11. UX flows (detailed)
 
 ### Flow A: First launch (≤ 60 seconds)
-1. Welcome screen (1 page)
-   - “Snap notebook pages. Search and chat with them.”
-2. Permissions
-   - Camera
-   - Photos (optional, for import)
-3. Default setup (no choices)
-   - Local vault created
-   - Sync OFF by default; enable backup later in Settings
+1. Welcome explains that originals are local, Gemini receives permitted images for processing and selected text for chat, and backup is separately optional.
+2. The person explicitly chooses whether to process scans with Gemini. Leaving this off keeps pages local and pending. An existing recorded choice is preserved during onboarding replay.
+3. **Start scanning**, **Import Photos**, or **Explore the app** enters without requiring camera access or an API key. Camera permission is requested only at the camera action. A system selection picker imports photos without broad library access.
+4. Local vault setup preserves existing content; backup remains off until configured.
 
 ### Flow B: Capture batch
 1. User scans pages
-2. Tap Done
-3. App shows: “Saved to Inbox”
+2. Tap Finish
+3. App confirms that pages are saved locally and queued, explaining when processing is allowed.
 4. Background processing starts (if enabled)
-5. User can swipe to Chat and ask immediately; chat can answer with whatever is already processed, and can say “Some pages are still processing.”
+5. User can select Chat and ask immediately; chat can answer with whatever is already processed, and can say “Some pages are still processing.”
 
 ### Flow C: Ask a question in Chat
 1. User asks
@@ -437,7 +419,7 @@ This prevents “LLM wrote something but we can’t apply it safely”.
 
 ## 14. MVP scope (recommendation)
 ### MVP (ship)
-- Two-mode swipe UI (Capture + Chat)
+- Native Capture / Library / Chat navigation
 - Batch capture + Inbox
 - Background processing to Markdown daily notes
 - Local vault + local search (FTS)
@@ -476,3 +458,12 @@ This prevents “LLM wrote something but we can’t apply it safely”.
 
 ---
 End of specification.md
+
+
+### Read-only Library and import — Plan 002
+
+Library provides local search, completed note previews, complete Markdown text with a raw-text fallback, collapsed raw transcription when safely separable, and original pages only when committed scan metadata proves the association. Empty results and unavailable/recovering storage are distinct states. Pending scans keep their existing batch, pause, and retry states. Browsing does not create an editor or modify note content. Encrypted display and thumbnail data remain in memory.
+
+Photo imports preserve the exact selected representation returned by the system picker with a validated JPEG, PNG, or HEIC extension. This is not a claim that the representation equals an inaccessible Photos master. Camera and import share durable original placement, metadata persistence, preprocessing, and retry handling. Multi-selection is processed sequentially; failures retain every already-saved original. A batch keeps its notebook until Finish; notebook changes apply to the next batch.
+
+Chat keeps its draft, conversation, preferred batch, source expansion, and in-flight operations when changing tabs. Setup-blocked submissions retain the draft. Sources open the same read-only note detail. Stale proposals require **Refresh and review**, and regenerated operations require explicit review before application.

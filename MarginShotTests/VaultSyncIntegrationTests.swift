@@ -2,32 +2,33 @@ import XCTest
 @testable import MarginShot
 
 final class VaultSyncIntegrationTests: XCTestCase {
-    // Use test-specific defaults and override standard defaults for deterministic test output.
-    private static let testDefaultsSuiteName = "com.marginshot.tests"
-    private static let defaultOverrides: [String: Any] = [
-        "organizationStyle": OrganizationStyle.johnnyDecimal.rawValue,
-        "organizationLinkingEnabled": true,
-        "organizationTopicPagesEnabled": false,
-        "organizationTaskExtractionEnabled": false,
-        "privacyLocalEncryptionEnabled": false
-    ]
+    private var testDefaults: UserDefaults!
+    private var defaultsSuiteName: String!
+    private var rootURL: URL!
+    private var persistenceController: PersistenceController!
+    private var indexStore: VaultIndexStore!
 
-    private let testDefaults = UserDefaults(suiteName: VaultSyncIntegrationTests.testDefaultsSuiteName)!
-    private var standardDefaultsSnapshot: [String: Any] = [:]
-
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        snapshotStandardDefaults()
-        applyOverrides(to: UserDefaults.standard)
-        applyTestDefaults()
-        try TestVaultHelper.resetVault()
-        try VaultBootstrapper.bootstrapIfNeeded(userDefaults: testDefaults)
+    override func setUp() async throws {
+        try await super.setUp()
+        defaultsSuiteName = "com.marginshot.tests.\(UUID().uuidString)"
+        testDefaults = UserDefaults(suiteName: defaultsSuiteName)!
+        testDefaults.set(OrganizationStyle.johnnyDecimal.rawValue, forKey: "organizationStyle")
+        testDefaults.set(true, forKey: "organizationLinkingEnabled")
+        testDefaults.set(false, forKey: "privacyLocalEncryptionEnabled")
+        rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("marginshot-test-\(UUID().uuidString)", isDirectory: true)
+        persistenceController = PersistenceController(inMemory: true)
+        try await persistenceController.load()
+        indexStore = VaultIndexStore(rootURL: rootURL, persistenceController: persistenceController, userDefaults: testDefaults)
+        try VaultBootstrapper.bootstrapIfNeeded(userDefaults: testDefaults, rootURL: rootURL)
     }
 
     override func tearDownWithError() throws {
-        try TestVaultHelper.resetVault()
-        restoreStandardDefaults()
-        clearTestDefaults()
+        // This URL is created by this fixture; never enumerate or delete Documents/vault.
+        if let rootURL { try FileManager.default.removeItem(at: rootURL) }
+        if let defaultsSuiteName { testDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+        indexStore = nil
+        persistenceController = nil
         try super.tearDownWithError()
     }
 
@@ -61,8 +62,7 @@ final class VaultSyncIntegrationTests: XCTestCase {
             structuredJSON: "{\"markdown\":\"# Entry\"}"
         )
 
-        let result = try VaultWriter.apply(input: input, userDefaults: testDefaults)
-        let rootURL = try TestVaultHelper.vaultRootURL()
+        let result = try VaultWriter.apply(input: input, userDefaults: testDefaults, rootURL: rootURL)
         let noteURL = rootURL.appendingPathComponent(result.notePath)
         let metadataURL = rootURL.appendingPathComponent(result.metadataPath)
         let entityURL = rootURL.appendingPathComponent("10_projects/Project-Atlas.md")
@@ -74,6 +74,9 @@ final class VaultSyncIntegrationTests: XCTestCase {
 
         let noteContents = try VaultFileStore.readText(from: noteURL, userDefaults: testDefaults)
         XCTAssertTrue(noteContents.contains("Raw transcription"))
+        let replayed = try VaultWriter.apply(input: input, userDefaults: testDefaults, rootURL: rootURL)
+        XCTAssertEqual(replayed.notePath, result.notePath)
+        XCTAssertEqual(try VaultFileStore.readText(from: noteURL, userDefaults: testDefaults), noteContents)
     }
 
     func testVaultApplyServiceCreatesNote() async throws {
@@ -85,18 +88,31 @@ final class VaultSyncIntegrationTests: XCTestCase {
             noteMeta: nil
         )
 
-        let summary = try await VaultApplyService.apply([operation], userDefaults: testDefaults)
-        let rootURL = try TestVaultHelper.vaultRootURL()
+        let summary = try await VaultApplyService.apply([operation], userDefaults: testDefaults, rootURL: rootURL, indexStore: indexStore, refreshDerivedPages: {})
         let noteURL = rootURL.appendingPathComponent("01_daily/qa-note.md")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: noteURL.path))
         XCTAssertEqual(try VaultFileStore.readText(from: noteURL, userDefaults: testDefaults), content)
         XCTAssertEqual(summary.createdOrUpdated, ["01_daily/qa-note.md"])
         XCTAssertTrue(summary.deleted.isEmpty)
+        let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
+        let indexData = try VaultFileStore.readData(from: indexURL, userDefaults: testDefaults)
+        let snapshot = try JSONDecoder().decode(IndexSnapshot.self, from: indexData)
+        XCTAssertTrue(snapshot.notes.contains { $0.path == "01_daily/qa-note.md" })
+    }
+
+    func testBootstrapUsesInjectedPreferencesAndPreservesExistingContent() throws {
+        let systemURL = rootURL.appendingPathComponent("_system/SYSTEM.md")
+        try VaultFileStore.writeText("Custom rules", to: systemURL, userDefaults: testDefaults)
+        testDefaults.set(OrganizationStyle.simple.rawValue, forKey: "organizationStyle")
+        try VaultBootstrapper.bootstrapIfNeeded(userDefaults: testDefaults, rootURL: rootURL)
+        XCTAssertEqual(try VaultFileStore.readText(from: systemURL, userDefaults: testDefaults), "Custom rules")
+        for folder in VaultFolder.folderNames(style: .simple) {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent(folder).path))
+        }
     }
 
     func testFolderSyncerCopiesVaultFiles() throws {
-        let rootURL = try TestVaultHelper.vaultRootURL()
         let sourceURL = rootURL.appendingPathComponent("01_daily/sync-test.md")
         try "sync".write(to: sourceURL, atomically: true, encoding: .utf8)
 
@@ -104,63 +120,24 @@ final class VaultSyncIntegrationTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: destinationURL) }
 
-        try FolderSyncer.syncVault(to: destinationURL, userDefaults: testDefaults)
+        try FolderSyncer.syncVault(to: destinationURL, userDefaults: testDefaults, rootURL: rootURL)
 
         let copiedURL = destinationURL.appendingPathComponent("01_daily/sync-test.md")
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedURL.path))
         // FolderSyncer copies raw files (not via VaultFileStore), so read with testDefaults
         XCTAssertEqual(try VaultFileStore.readText(from: copiedURL, userDefaults: testDefaults), "sync")
+        try "updated sync content".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try FolderSyncer.syncVault(to: destinationURL, userDefaults: testDefaults, rootURL: rootURL)
+        XCTAssertEqual(try String(contentsOf: sourceURL, encoding: .utf8), "updated sync content")
+        XCTAssertEqual(try String(contentsOf: copiedURL, encoding: .utf8), "updated sync content")
+        try FolderSyncer.syncVault(to: destinationURL, userDefaults: testDefaults, rootURL: rootURL)
+        XCTAssertEqual(try String(contentsOf: sourceURL, encoding: .utf8), "updated sync content")
+        XCTAssertEqual(try String(contentsOf: copiedURL, encoding: .utf8), "updated sync content")
     }
 
-    private func snapshotStandardDefaults() {
-        standardDefaultsSnapshot = [:]
-        for key in Self.defaultOverrides.keys {
-            standardDefaultsSnapshot[key] = UserDefaults.standard.object(forKey: key) ?? NSNull()
-        }
-    }
-
-    private func restoreStandardDefaults() {
-        for (key, value) in standardDefaultsSnapshot {
-            if value is NSNull {
-                UserDefaults.standard.removeObject(forKey: key)
-            } else {
-                UserDefaults.standard.set(value, forKey: key)
-            }
-        }
-        standardDefaultsSnapshot.removeAll()
-    }
-
-    private func applyTestDefaults() {
-        testDefaults.removePersistentDomain(forName: Self.testDefaultsSuiteName)
-        applyOverrides(to: testDefaults)
-    }
-
-    private func clearTestDefaults() {
-        testDefaults.removePersistentDomain(forName: Self.testDefaultsSuiteName)
-    }
-
-    private func applyOverrides(to userDefaults: UserDefaults) {
-        for (key, value) in Self.defaultOverrides {
-            userDefaults.set(value, forKey: key)
-        }
-    }
 }
 
 private enum TestVaultHelper {
-    static func vaultRootURL() throws -> URL {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw VaultBootstrapError.documentsDirectoryUnavailable
-        }
-        return documentsURL.appendingPathComponent("vault", isDirectory: true)
-    }
-
-    static func resetVault() throws {
-        let rootURL = try vaultRootURL()
-        if FileManager.default.fileExists(atPath: rootURL.path) {
-            try FileManager.default.removeItem(at: rootURL)
-        }
-    }
-
     static func dateString(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

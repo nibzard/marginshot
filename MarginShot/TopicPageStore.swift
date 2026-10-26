@@ -130,7 +130,7 @@ enum TopicPageStore {
             guard !expectedFiles.contains(fileName) else { continue }
             guard let contents = try? VaultFileStore.readText(from: url),
                   contents.contains(autoMarker) else { continue }
-            try fileManager.removeItem(at: url)
+            try VaultRepository.removeItem(at: url)
             let relativePath = "\(topicsFolder)/\(fileName)"
             await VaultIndexStore.shared.removeNote(path: relativePath, context: context)
         }

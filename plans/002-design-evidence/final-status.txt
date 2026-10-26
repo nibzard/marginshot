@@ -1,0 +1,53 @@
+ M MarginShot.xcodeproj/project.pbxproj
+ M MarginShot.xcodeproj/project.xcworkspace/xcuserdata/nikola.xcuserdatad/UserInterfaceState.xcuserstate
+ M MarginShot.xcodeproj/xcuserdata/nikola.xcuserdatad/xcschemes/xcschememanagement.plist
+ M MarginShot/ChatAgent.swift
+ M MarginShot/ContentView.swift
+ M MarginShot/GeminiClient.swift
+ M MarginShot/Info.plist
+ M MarginShot/MarginShotApp.swift
+ M MarginShot/PersistenceController.swift
+ M MarginShot/ProcessingPipeline.swift
+ M MarginShot/ProcessingQueue.swift
+ M MarginShot/SyncStatusStore.swift
+ M MarginShot/TopicPageStore.swift
+ M MarginShot/VaultFileStore.swift
+ M MarginShot/VaultIndexStore.swift
+ M MarginShot/Views/ApplyReviewView.swift
+ M MarginShot/Views/CaptureView.swift
+ M MarginShot/Views/ChatView.swift
+ M MarginShot/Views/HeaderView.swift
+ M MarginShot/Views/NotebookPickerView.swift
+ M MarginShot/Views/OnboardingView.swift
+ M MarginShot/Views/SettingsView.swift
+ M MarginShot/Views/SystemRulesEditorView.swift
+ M MarginShotTests/VaultSyncIntegrationTests.swift
+ M MarginShotUITests/MarginShotUITests.swift
+ M QA.md
+ M SPECS.md
+?? MarginShot.xcodeproj/project.xcworkspace/xcshareddata/
+?? MarginShot.xcodeproj/xcshareddata/
+?? MarginShot/CaptureStore.swift
+?? MarginShot/DesignFixtures.swift
+?? MarginShot/LaunchScreen.storyboard
+?? MarginShot/LibraryStore.swift
+?? MarginShot/RevisionSyncEngine.swift
+?? MarginShot/SyncCoordinator.swift
+?? MarginShot/VaultNoteMetadataStore.swift
+?? MarginShot/VaultRepository.swift
+?? MarginShot/Views/AppTheme.swift
+?? MarginShot/Views/CameraPresentation.swift
+?? MarginShot/Views/LibraryView.swift
+?? MarginShotTests/CaptureDesignTests.swift
+?? MarginShotTests/CapturePersistenceTests.swift
+?? MarginShotTests/ChatPresentationTests.swift
+?? MarginShotTests/DesignFixtureTests.swift
+?? MarginShotTests/GeminiPrivacyTests.swift
+?? MarginShotTests/LibraryReadTests.swift
+?? MarginShotTests/ProcessingRecoveryTests.swift
+?? MarginShotTests/SyncCoordinatorTests.swift
+?? MarginShotTests/VaultExportTests.swift
+?? MarginShotTests/VaultIndexRecoveryTests.swift
+?? MarginShotTests/VaultProposalTests.swift
+?? MarginShotTests/VaultRepositoryTests.swift
+?? plans/

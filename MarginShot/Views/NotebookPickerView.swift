@@ -24,8 +24,8 @@ struct NotebookPickerView: View {
                 notebooksSection
                 addNotebookSection
                 notebookDetailsSection
-                statusMessageSection
             }
+            .safeAreaInset(edge: .bottom) { statusMessageSection }
             .navigationTitle("Notebooks")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -105,9 +105,13 @@ struct NotebookPickerView: View {
                 TextField("Notebook name", text: $nameDraft)
                     .textInputAutocapitalization(.words)
                 Toggle("Set as default notebook", isOn: $isDefaultDraft)
-                TextEditor(text: $rulesDraft)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 180)
+                DisclosureGroup("Instructions for this notebook") {
+                    Text("Additional guidance for processing pages in this notebook.").font(.footnote).foregroundStyle(.secondary)
+                    TextEditor(text: $rulesDraft)
+                        .font(.body)
+                        .frame(minHeight: 180)
+                        .accessibilityLabel("Instructions for this notebook")
+                }
                 Button("Save Notebook") {
                     saveSelectedNotebook()
                 }
@@ -123,9 +127,11 @@ struct NotebookPickerView: View {
     @ViewBuilder
     private var statusMessageSection: some View {
         if let statusMessage {
-            Text(statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Label(statusMessage, systemImage: statusMessage.hasSuffix("saved.") || statusMessage.hasSuffix("added.") ? "checkmark.circle" : "info.circle")
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(uiColor: .systemBackground))
         }
     }
 

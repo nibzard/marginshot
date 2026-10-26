@@ -41,6 +41,7 @@ struct ScanSnapshot {
     let structuredJSON: String?
     let ocrText: String?
     let structuredMarkdown: String?
+    let jobCheckpoint: String?
 }
 
 struct VaultWriterInput {
@@ -55,7 +56,7 @@ struct VaultWriterInput {
     let structuredJSON: String?
 }
 
-struct VaultWriteResult {
+struct VaultWriteResult: Codable {
     let notePath: String
     let noteTitle: String
     let metadataPath: String
@@ -63,7 +64,7 @@ struct VaultWriteResult {
     let createdEntities: [EntityPage]
 }
 
-struct EntityPage: Equatable {
+struct EntityPage: Codable, Equatable {
     let path: String
     let title: String
 }
@@ -107,8 +108,24 @@ enum VaultWriter {
         return formatter
     }()
 
-    static func apply(input: VaultWriterInput, userDefaults: UserDefaults = .standard) throws -> VaultWriteResult {
-        let rootURL = try vaultRootURL()
+    static func apply(input: VaultWriterInput, userDefaults: UserDefaults = .standard, rootURL: URL? = nil) throws -> VaultWriteResult {
+        let rootURL = try rootURL ?? vaultRootURL()
+        let repository = VaultRepository.register(rootURL: rootURL, userDefaults: userDefaults)
+        return try repository.transaction(id: "scan:\(input.scanId.uuidString)") {
+            try applyPrepared(input: input, userDefaults: userDefaults, rootURL: rootURL)
+        }
+    }
+
+    private static func applyPrepared(input: VaultWriterInput, userDefaults: UserDefaults, rootURL: URL) throws -> VaultWriteResult {
+        let metadataPath = VaultScanStore.metadataPath(for: input.processedImagePath ?? input.imagePath)
+        let metadataURL = rootURL.appendingPathComponent(metadataPath)
+        if fileManager.fileExists(atPath: metadataURL.path) {
+            let existing = try JSONDecoder().decode(ScanMetadata.self, from: VaultFileStore.readData(from: metadataURL, userDefaults: userDefaults))
+            if existing.scanId == input.scanId.uuidString,
+               fileManager.fileExists(atPath: rootURL.appendingPathComponent(existing.notePath).path) {
+                return VaultWriteResult(notePath: existing.notePath, noteTitle: existing.noteTitle, metadataPath: metadataPath, noteMeta: existing.structured.noteMeta, createdEntities: [])
+            }
+        }
         let preferences = OrganizationPreferences(userDefaults: userDefaults)
         let resolved = resolveWikiLinks(for: input, linkingEnabled: preferences.linkingEnabled)
         let style = preferences.style
@@ -122,8 +139,6 @@ enum VaultWriter {
             style: style,
             userDefaults: userDefaults
         )
-        let metadataPath = VaultScanStore.metadataPath(for: input.processedImagePath ?? input.imagePath)
-        let metadataURL = rootURL.appendingPathComponent(metadataPath)
         let metadata = ScanMetadata(
             scanId: input.scanId.uuidString,
             batchId: input.batchId?.uuidString,
@@ -140,7 +155,8 @@ enum VaultWriter {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let metadataData = try encoder.encode(metadata)
-        try writeAtomically(data: metadataData, to: metadataURL)
+        try VaultFileStore.writeData(metadataData, to: metadataURL, userDefaults: userDefaults)
+        try VaultNoteMetadataStore.write(path: noteResult.path, noteMeta: normalizedStructured.noteMeta, rootURL: rootURL, userDefaults: userDefaults)
         let createdEntities: [EntityPage]
         if preferences.linkingEnabled {
             createdEntities = try ensureEntityPages(links: resolved.linkTitles, rootURL: rootURL, style: style, userDefaults: userDefaults)
@@ -173,6 +189,10 @@ enum VaultWriter {
             let notePath = "\(folder)/\(fileName)"
             let noteURL = rootURL.appendingPathComponent(notePath)
             let entry = buildDailyEntry(input: input, structured: structured)
+            if fileManager.fileExists(atPath: noteURL.path) {
+                let existing = try VaultFileStore.readText(from: noteURL, userDefaults: userDefaults)
+                if existing.contains("Scan: \(input.scanId.uuidString)") { return (notePath, dateString) }
+            }
             let updated = try appendDailyEntry(existingAt: noteURL, dateString: dateString, entry: entry, userDefaults: userDefaults)
             try writeAtomically(text: updated, to: noteURL, userDefaults: userDefaults)
             return (notePath, dateString)
@@ -206,7 +226,8 @@ enum VaultWriter {
     }
 
     private static func appendDailyEntry(existingAt url: URL, dateString: String, entry: String, userDefaults: UserDefaults = .standard) throws -> String {
-        let existing = (try? VaultFileStore.readText(from: url, userDefaults: userDefaults)) ?? ""
+        let existing = fileManager.fileExists(atPath: url.path)
+            ? try VaultFileStore.readText(from: url, userDefaults: userDefaults) : ""
         if existing.isEmpty {
             return "# \(dateString)\n\n\(entry)\n"
         }
@@ -497,9 +518,7 @@ enum VaultWriter {
         try VaultFileStore.writeText(text, to: url, userDefaults: userDefaults)
     }
 
-    private static func writeAtomically(data: Data, to url: URL) throws {
-        try VaultFileStore.writeData(data, to: url)
-    }
+
 }
 
 enum TaskConsolidatorError: Error {
@@ -715,9 +734,10 @@ struct VaultFileOperation: Codable, Equatable {
     let path: String
     let content: String?
     let noteMeta: NoteMeta?
+    var expectedRevision: VaultExpectedRevision? = nil
 }
 
-struct VaultApplySummary: Equatable {
+struct VaultApplySummary: Codable, Equatable {
     let createdOrUpdated: [String]
     let deleted: [String]
 }
@@ -750,135 +770,89 @@ enum VaultApplyService {
     private struct PreparedOperation {
         let operation: VaultFileOperation
         let path: String
-        let targetURL: URL
-        let stagedURL: URL?
-        let backupURL: URL?
     }
 
-    static func apply(_ operations: [VaultFileOperation], userDefaults: UserDefaults = .standard) async throws -> VaultApplySummary {
-        let sanitized = try sanitizeOperations(operations)
+    static func apply(
+        _ operations: [VaultFileOperation],
+        userDefaults: UserDefaults = .standard,
+        rootURL: URL? = nil,
+        indexStore: VaultIndexStore = .shared,
+        operationID: String = UUID().uuidString,
+        expectedRevisions: [String: VaultExpectedRevision] = [:],
+        refreshDerivedPages: () async -> Void = {
+            await TopicPageStore.refreshIfEnabled(context: nil)
+            await TaskConsolidator.refreshIfEnabled(context: nil)
+        }
+    ) async throws -> VaultApplySummary {
+        let sanitized = try sanitizeOperations(operations, userDefaults: userDefaults)
         guard !sanitized.isEmpty else { throw VaultApplyError.emptyOperations }
-        let rootURL = try vaultRootURL()
-
-        let stagingURL = fileManager.temporaryDirectory
-            .appendingPathComponent("marginshot-apply-\(UUID().uuidString)", isDirectory: true)
-        let stagedRootURL = stagingURL.appendingPathComponent("staged", isDirectory: true)
-        let backupRootURL = stagingURL.appendingPathComponent("backup", isDirectory: true)
-        try fileManager.createDirectory(at: stagedRootURL, withIntermediateDirectories: true, attributes: nil)
-        try fileManager.createDirectory(at: backupRootURL, withIntermediateDirectories: true, attributes: nil)
-        defer { try? fileManager.removeItem(at: stagingURL) }
-
-        var prepared: [PreparedOperation] = []
-        var seen = Set<String>()
-
+        let rootURL = try rootURL ?? vaultRootURL()
+        let repository = VaultRepository.register(rootURL: rootURL, userDefaults: userDefaults)
+        var expected = expectedRevisions
         for operation in sanitized {
-            guard seen.insert(operation.path).inserted else {
-                throw VaultApplyError.invalidOperation("Duplicate path: \(operation.path)")
+            if let revision = operation.expectedRevision { expected[operation.path] = revision }
+            else if operation.action == .create { expected[operation.path] = .missing }
+            else if expected[operation.path] == nil {
+                throw VaultRepositoryError.staleRevision(operation.path)
             }
-
-            let targetURL = rootURL.appendingPathComponent(operation.path)
-            try ensureWithinVault(targetURL, rootURL)
-            let exists = fileManager.fileExists(atPath: targetURL.path)
-
-            switch operation.action {
-            case .create:
-                if exists {
+        }
+        let summary: VaultApplySummary = try repository.transaction(id: operationID, expected: expected) {
+            var seen = Set<String>()
+            // Validate every operation before staging or committing any change.
+            for operation in sanitized {
+                guard seen.insert(operation.path).inserted else {
+                    throw VaultApplyError.invalidOperation("Duplicate path: \(operation.path)")
+                }
+                let target = try repository.validatedURL(operation.path)
+                let exists = fileManager.fileExists(atPath: target.path)
+                if operation.action == .create && exists {
                     throw VaultApplyError.invalidOperation("File already exists: \(operation.path)")
                 }
-            case .update:
-                if !exists {
+                if operation.action != .create && !exists {
                     throw VaultApplyError.invalidOperation("File not found: \(operation.path)")
                 }
-            case .delete:
-                if !exists {
-                    throw VaultApplyError.invalidOperation("File not found: \(operation.path)")
+                if operation.action != .delete {
+                    guard let content = operation.content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw VaultApplyError.invalidOperation("Missing content for \(operation.path)")
+                    }
                 }
             }
-
-            var backupURL: URL?
-            if exists {
-                let backup = backupRootURL.appendingPathComponent(operation.path)
-                try fileManager.createDirectory(
-                    at: backup.deletingLastPathComponent(),
-                    withIntermediateDirectories: true,
-                    attributes: nil
-                )
-                try fileManager.copyItem(at: targetURL, to: backup)
-                backupURL = backup
-            }
-
-            var stagedURL: URL?
-            if operation.action != .delete {
-                guard let content = operation.content,
-                      !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw VaultApplyError.invalidOperation("Missing content for \(operation.path)")
+            for operation in sanitized {
+                let target = try repository.validatedURL(operation.path)
+                if operation.action == .delete {
+                    try VaultRepository.removeItem(at: target)
+                    let metadata = rootURL.appendingPathComponent(VaultNoteMetadataStore.metadataPath(for: operation.path))
+                    if fileManager.fileExists(atPath: metadata.path) { try VaultRepository.removeItem(at: metadata) }
+                } else {
+                    try VaultFileStore.writeText(operation.content!, to: target, userDefaults: userDefaults)
+                    try VaultNoteMetadataStore.write(path: operation.path, noteMeta: resolvedNoteMeta(for: operation, content: operation.content!), rootURL: rootURL, userDefaults: userDefaults)
                 }
-                let staged = stagedRootURL.appendingPathComponent(operation.path)
-                try fileManager.createDirectory(
-                    at: staged.deletingLastPathComponent(),
-                    withIntermediateDirectories: true,
-                    attributes: nil
-                )
-                try Data(content.utf8).write(to: staged, options: .atomic)
-                stagedURL = staged
             }
-
-            prepared.append(
-                PreparedOperation(
-                    operation: operation,
-                    path: operation.path,
-                    targetURL: targetURL,
-                    stagedURL: stagedURL,
-                    backupURL: backupURL
-                )
+            return VaultApplySummary(
+                createdOrUpdated: sanitized.filter { $0.action != .delete }.map { $0.path },
+                deleted: sanitized.filter { $0.action == .delete }.map { $0.path }
             )
         }
-
-        var applied: [PreparedOperation] = []
-        do {
-            for item in prepared {
-                switch item.operation.action {
-                case .delete:
-                    try fileManager.removeItem(at: item.targetURL)
-                case .create, .update:
-                    guard let stagedURL = item.stagedURL else {
-                        throw VaultApplyError.invalidOperation("Missing content for \(item.path)")
-                    }
-                    try fileManager.createDirectory(
-                        at: item.targetURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true,
-                        attributes: nil
-                    )
-                    let data = try Data(contentsOf: stagedURL)
-                    try VaultFileStore.writeData(data, to: item.targetURL, userDefaults: userDefaults)
-                }
-                applied.append(item)
-            }
-        } catch {
-            rollback(applied)
-            throw VaultApplyError.applyFailed(error.localizedDescription)
-        }
-
-        await updateIndex(for: prepared, userDefaults: userDefaults)
-        return VaultApplySummary(
-            createdOrUpdated: prepared.filter { $0.operation.action != .delete }.map { $0.path },
-            deleted: prepared.filter { $0.operation.action == .delete }.map { $0.path }
-        )
+        let prepared = sanitized.map { PreparedOperation(operation: $0, path: $0.path) }
+        await updateIndex(for: prepared, indexStore: indexStore)
+        await refreshDerivedPages()
+        return summary
     }
 
-    private static func sanitizeOperations(_ operations: [VaultFileOperation]) throws -> [VaultFileOperation] {
+    private static func sanitizeOperations(_ operations: [VaultFileOperation], userDefaults: UserDefaults) throws -> [VaultFileOperation] {
         try operations.map { operation in
-            let normalized = try normalizePath(operation.path)
+            let normalized = try normalizePath(operation.path, userDefaults: userDefaults)
             return VaultFileOperation(
                 action: operation.action,
                 path: normalized,
                 content: operation.content,
-                noteMeta: operation.noteMeta
+                noteMeta: operation.noteMeta,
+                expectedRevision: operation.expectedRevision
             )
         }
     }
 
-    private static func normalizePath(_ path: String) throws -> String {
+    static func normalizePath(_ path: String, userDefaults: UserDefaults = .standard) throws -> String {
         var trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw VaultApplyError.invalidOperation("Missing file path.")
@@ -903,46 +877,19 @@ enum VaultApplyService {
         guard allowedExtensions.contains(ext) else {
             throw VaultApplyError.invalidOperation("Only .md files can be modified.")
         }
-        let style = OrganizationPreferences().style
+        let style = OrganizationPreferences(userDefaults: userDefaults).style
         return VaultFolder.normalizeTopLevelPath(trimmed, style: style)
     }
 
-    private static func ensureWithinVault(_ targetURL: URL, _ rootURL: URL) throws {
-        let rootPath = rootURL.standardizedFileURL.path
-        let targetPath = targetURL.standardizedFileURL.path
-        guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
-            throw VaultApplyError.invalidOperation("Path escapes vault root.")
-        }
-    }
-
-    private static func rollback(_ applied: [PreparedOperation]) {
-        for item in applied.reversed() {
-            if let backupURL = item.backupURL {
-                try? fileManager.createDirectory(
-                    at: item.targetURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true,
-                    attributes: nil
-                )
-                if fileManager.fileExists(atPath: item.targetURL.path) {
-                    _ = try? fileManager.replaceItemAt(item.targetURL, withItemAt: backupURL)
-                } else {
-                    try? fileManager.copyItem(at: backupURL, to: item.targetURL)
-                }
-            } else {
-                try? fileManager.removeItem(at: item.targetURL)
-            }
-        }
-    }
-
-    private static func updateIndex(for operations: [PreparedOperation], userDefaults: UserDefaults = .standard) async {
+    private static func updateIndex(for operations: [PreparedOperation], indexStore: VaultIndexStore) async {
         for item in operations {
             switch item.operation.action {
             case .delete:
-                await VaultIndexStore.shared.removeNote(path: item.path, context: nil)
+                await indexStore.removeNote(path: item.path, context: nil)
             case .create, .update:
                 guard let content = item.operation.content else { continue }
                 let meta = resolvedNoteMeta(for: item.operation, content: content)
-                await VaultIndexStore.shared.updateAfterNoteWrite(
+                await indexStore.updateAfterNoteWrite(
                     notePath: item.path,
                     noteTitle: meta.title,
                     noteMeta: meta,
@@ -950,8 +897,6 @@ enum VaultApplyService {
                 )
             }
         }
-        await TopicPageStore.refreshIfEnabled(context: nil)
-        await TaskConsolidator.refreshIfEnabled(context: nil)
     }
 
     private static func resolvedNoteMeta(for operation: VaultFileOperation, content: String) -> NoteMeta {
@@ -996,24 +941,47 @@ final class ProcessingQueue {
     static let shared = ProcessingQueue()
 
     private let persistenceController: PersistenceController
+    private let vaultRootOverride: URL?
+    private let userDefaults: UserDefaults
+    private let indexStore: VaultIndexStore
+    private let refreshDerivedPages: (NSManagedObjectContext) async -> Void
     private var taskIdentifier: String {
         Bundle.main.bundleIdentifier.map { "\($0).processing" } ?? "processing"
     }
     private let processingLock = NSLock()
     private var isProcessing = false
+    private var processingRequested = false
 
     private var preferences: ProcessingPreferences {
         ProcessingPreferences()
     }
 
-    init(persistenceController: PersistenceController = .shared) {
+    init(
+        persistenceController: PersistenceController = .shared,
+        rootURL: URL? = nil,
+        userDefaults: UserDefaults = .standard,
+        indexStore: VaultIndexStore = .shared,
+        refreshDerivedPages: @escaping (NSManagedObjectContext) async -> Void = { context in
+            await TaskConsolidator.refreshIfEnabled(context: context)
+            await TopicPageStore.refreshIfEnabled(context: context)
+        }
+    ) {
         self.persistenceController = persistenceController
+        self.vaultRootOverride = rootURL
+        self.userDefaults = userDefaults
+        self.indexStore = indexStore
+        self.refreshDerivedPages = refreshDerivedPages
     }
 
     func registerBackgroundTasks() {
         guard supportsBackgroundTasks else { return }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { [weak self] task in
-            self?.handleBackgroundTask(task)
+            Task {
+                do {
+                    try await AppRecovery.shared.prepare()
+                    self?.handleBackgroundTask(task)
+                } catch { task.setTaskCompleted(success: false) }
+            }
         }
     }
 
@@ -1021,32 +989,6 @@ final class ProcessingQueue {
         guard preferences.autoProcessInbox else { return }
         scheduleBackgroundProcessing()
         processPendingBatchesIfNeeded()
-    }
-
-    func enqueueOpenBatches() {
-        guard preferences.autoProcessInbox else { return }
-        let context = persistenceController.container.newBackgroundContext()
-        let openBatchIDs: [NSManagedObjectID] = context.performAndWait {
-            let request = BatchEntity.fetchRequest()
-            request.predicate = NSPredicate(format: "status == %@", BatchStatus.open.rawValue)
-            request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
-            do {
-                let openBatches = try context.fetch(request)
-                guard !openBatches.isEmpty else { return [] }
-                for batch in openBatches {
-                    batch.status = BatchStatus.queued.rawValue
-                    batch.updatedAt = Date()
-                }
-                try context.save()
-                return openBatches.map { $0.objectID }
-            } catch {
-                print("Failed to enqueue open batches: \(error)")
-                return []
-            }
-        }
-        if !openBatchIDs.isEmpty {
-            enqueuePendingProcessing()
-        }
     }
 
     func scheduleBackgroundProcessing() {
@@ -1122,7 +1064,7 @@ final class ProcessingQueue {
     private func beginProcessingIfNeeded() -> Bool {
         processingLock.lock()
         defer { processingLock.unlock() }
-        guard !isProcessing else { return false }
+        guard !isProcessing else { processingRequested = true; return false }
         isProcessing = true
         return true
     }
@@ -1138,7 +1080,10 @@ final class ProcessingQueue {
     private func endProcessing() {
         processingLock.lock()
         isProcessing = false
+        let shouldContinue = processingRequested
+        processingRequested = false
         processingLock.unlock()
+        if shouldContinue { processPendingBatchesIfNeeded() }
     }
 
     private func processPendingBatchesIfNeeded() {
@@ -1163,15 +1108,36 @@ final class ProcessingQueue {
         return await NetworkConstraintChecker.isNetworkAvailable()
     }
 
+    private func pausePendingWork(reason: String) async {
+        let context = persistenceController.container.newBackgroundContext()
+        await context.perform {
+            let request = BatchEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "status == %@", BatchStatus.queued.rawValue)
+            do {
+                for batch in try context.fetch(request) {
+                    for scan in batch.scans where scan.status != ScanStatus.filed.rawValue && scan.jobState != ProcessingJobState.needsAttention.rawValue && scan.jobState != ProcessingJobState.retryScheduled.rawValue {
+                        ProcessingJobStore.pause(scan: scan, category: reason)
+                    }
+                }
+                try context.save()
+            } catch { print("Processing pause persistence deferred: \(error)") }
+        }
+    }
+
     private func processPendingBatches() async -> Bool {
         let prefs = preferences
         guard prefs.autoProcessInbox else { return true }
-        guard prefs.allowsImageUploads else { return true }
+        guard prefs.allowsImageUploads else {
+            await pausePendingWork(reason: "privacy")
+            return true
+        }
         guard await hasRequiredPower() else {
+            await pausePendingWork(reason: "charging")
             scheduleBackgroundProcessing()
             return true
         }
         guard await hasRequiredNetwork() else {
+            await pausePendingWork(reason: "network")
             scheduleBackgroundProcessing()
             return true
         }
@@ -1276,21 +1242,22 @@ final class ProcessingQueue {
             }
         }
 
-        if wasCancelled {
+        if wasCancelled || Task.isCancelled || (!batchSucceeded && !preferences.allowsImageUploads) {
             await resetBatchStatusOnCancellation(objectID: objectID, context: context)
             return false
         }
 
-        let hasScanError = await context.perform {
+        let completion = await context.perform {
             guard let batch = try? context.existingObject(with: objectID) as? BatchEntity else {
-                return true
+                return (hasError: true, allFiled: false)
             }
-            return batch.scans.contains { ScanStatus(rawValue: $0.status) == .error }
+            return (hasError: batch.scans.contains { ScanStatus(rawValue: $0.status) == .error || $0.jobState == ProcessingJobState.needsAttention.rawValue },
+                    allFiled: batch.scans.allSatisfy { ScanStatus(rawValue: $0.status) == .filed })
         }
 
         await context.perform {
             guard let batch = try? context.existingObject(with: objectID) as? BatchEntity else { return }
-            batch.status = hasScanError ? BatchStatus.blocked.rawValue : BatchStatus.done.rawValue
+            batch.status = completion.hasError ? BatchStatus.blocked.rawValue : (completion.allFiled ? BatchStatus.done.rawValue : BatchStatus.queued.rawValue)
             batch.updatedAt = Date()
             try? context.save()
         }
@@ -1300,7 +1267,7 @@ final class ProcessingQueue {
             PerformanceMetricsStore.shared.recordDuration(.processingBatchDuration, seconds: batchDuration)
         }
 
-        return batchSucceeded && !hasScanError
+        return batchSucceeded && completion.allFiled && !completion.hasError
     }
 
     private func resetBatchStatusOnCancellation(objectID: NSManagedObjectID, context: NSManagedObjectContext) async {
@@ -1310,8 +1277,8 @@ final class ProcessingQueue {
             batch.updatedAt = Date()
             for scan in batch.scans {
                 let status = ScanStatus(rawValue: scan.status)
-                if status == .transcribing || status == .structured {
-                    scan.status = ScanStatus.preprocessing.rawValue
+                if status != .filed && scan.jobState != ProcessingJobState.needsAttention.rawValue {
+                    ProcessingJobStore.pause(scan: scan, category: "cancelledOrPrivacy")
                 }
             }
             try? context.save()
@@ -1329,6 +1296,11 @@ final class ProcessingQueue {
             return false
         }
 
+        let eligible = await context.perform {
+            guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return false }
+            return scan.jobState != ProcessingJobState.needsAttention.rawValue && (scan.jobNextRetryAt.map { $0 <= Date() } ?? true)
+        }
+        guard eligible else { return false }
         let scanStart = CFAbsoluteTimeGetCurrent()
         var shouldRecordDuration = false
         defer {
@@ -1362,16 +1334,47 @@ final class ProcessingQueue {
         await context.perform {
             guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return }
             scan.status = ScanStatus.transcribing.rawValue
+            scan.jobState = ProcessingJobState.running.rawValue
+            scan.jobAttempts = NSNumber(value: (scan.jobAttempts?.intValue ?? 0) + 1)
+            scan.jobFailure = nil
             try? context.save()
         }
 
         do {
-            let input = try loadScanInput(imagePath: snapshot.processedPath ?? snapshot.imagePath)
+            var inputPath = snapshot.processedPath
+            if inputPath == nil {
+                let rawURL = try VaultScanStore.url(for: snapshot.imagePath)
+                let raw = try VaultFileStore.readData(from: rawURL)
+                let processed = try DocumentProcessingPipeline.process(imageData: raw)
+                let path = try VaultScanStore.saveProcessedScan(processedData: processed.processedData, rawPath: snapshot.imagePath)
+                try await context.perform {
+                    guard let scan = try context.existingObject(with: objectID) as? ScanEntity else { throw CaptureStoreError.metadataUnavailable }
+                    scan.processedImagePath = path
+                    scan.jobCheckpoint = "inputReady"
+                    try context.save()
+                }
+                inputPath = path
+            }
+            try Task.checkCancellation()
+            let input = try loadScanInput(imagePath: inputPath!)
             let output = try await ScanProcessingPipeline.process(
                 input: input,
                 mode: mode,
                 client: client,
-                context: processingContext
+                context: processingContext,
+                checkpoint: try processingCheckpoint(from: snapshot),
+                saveCheckpoint: { checkpoint in
+                    try await context.perform {
+                        guard let scan = try context.existingObject(with: objectID) as? ScanEntity else { throw CaptureStoreError.metadataUnavailable }
+                        scan.ocrText = checkpoint.transcript.rawTranscript
+                        scan.transcriptJSON = checkpoint.transcriptJSON
+                        scan.structuredJSON = checkpoint.structuredJSON
+                        scan.structuredMarkdown = checkpoint.structured?.markdown
+                        scan.jobCheckpoint = checkpoint.stage
+                        scan.status = checkpoint.stage == "structured" ? ScanStatus.structured.rawValue : ScanStatus.transcribing.rawValue
+                        try context.save()
+                    }
+                }
             )
             guard let writerInput = await persistStructuredOutput(
                 objectID: objectID,
@@ -1382,7 +1385,24 @@ final class ProcessingQueue {
             }
             return await fileStructuredScan(objectID: objectID, context: context, writerInput: writerInput)
         } catch {
-            await markScanError(objectID: objectID, context: context)
+            if ProcessingInterruption.isPause(error) {
+                await context.perform {
+                    guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return }
+                    ProcessingJobStore.pause(scan: scan, category: "cancelledOrPrivacy")
+                    try? context.save()
+                }
+            } else if let clientError = error as? GeminiClientError, clientError.isRetryable {
+                await context.perform {
+                    guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return }
+                    scan.status = ScanStatus.captured.rawValue
+                    scan.jobState = ProcessingJobState.retryScheduled.rawValue
+                    scan.jobFailure = "network"
+                    scan.jobNextRetryAt = Date().addingTimeInterval(min(3600, pow(2, Double(scan.jobAttempts?.intValue ?? 1)) * 30))
+                    try? context.save()
+                }
+            } else {
+                await markScanError(objectID: objectID, context: context)
+            }
             return false
         }
     }
@@ -1408,7 +1428,8 @@ final class ProcessingQueue {
                 transcriptJSON: scan.transcriptJSON,
                 structuredJSON: scan.structuredJSON,
                 ocrText: scan.ocrText,
-                structuredMarkdown: scan.structuredMarkdown
+                structuredMarkdown: scan.structuredMarkdown,
+                jobCheckpoint: scan.jobCheckpoint
             )
         }
     }
@@ -1428,7 +1449,13 @@ final class ProcessingQueue {
             scan.structuredMarkdown = output.structured.markdown
             scan.structuredJSON = output.structuredJSON
             scan.status = ScanStatus.structured.rawValue
-            try? context.save()
+            scan.jobState = ProcessingJobState.pending.rawValue
+            scan.jobCheckpoint = "structured"
+            scan.jobNextRetryAt = nil
+            do { try context.save() } catch {
+                context.rollback()
+                return nil
+            }
             return VaultWriterInput(
                 scanId: scan.id,
                 batchId: scan.batch?.id,
@@ -1441,6 +1468,14 @@ final class ProcessingQueue {
                 structuredJSON: output.structuredJSON
             )
         }
+    }
+
+    private func processingCheckpoint(from snapshot: ScanSnapshot) throws -> ProcessingCheckpoint? {
+        guard let stage = snapshot.jobCheckpoint, ["transcribed", "organized", "structured"].contains(stage),
+              let transcriptJSON = snapshot.transcriptJSON else { return nil }
+        let transcript = try JSONDecoder().decode(TranscriptionPayload.self, from: Data(transcriptJSON.utf8))
+        let structured = try snapshot.structuredJSON.map { try JSONDecoder().decode(StructurePayload.self, from: Data($0.utf8)) }
+        return ProcessingCheckpoint(stage: stage, transcript: transcript, transcriptJSON: transcriptJSON, structured: structured, structuredJSON: snapshot.structuredJSON)
     }
 
     private func writerInput(from snapshot: ScanSnapshot) throws -> VaultWriterInput {
@@ -1470,25 +1505,30 @@ final class ProcessingQueue {
         )
     }
 
-    private func fileStructuredScan(
+    func fileStructuredScan(
         objectID: NSManagedObjectID,
         context: NSManagedObjectContext,
         writerInput: VaultWriterInput
     ) async -> Bool {
         do {
-            let result = try VaultWriter.apply(input: writerInput)
-            await context.perform {
-                guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return }
+            let result = try VaultWriter.apply(input: writerInput, userDefaults: userDefaults, rootURL: vaultRootOverride)
+            let completed = await context.perform {
+                guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return false }
                 scan.status = ScanStatus.filed.rawValue
-                try? context.save()
+                scan.jobState = ProcessingJobState.complete.rawValue
+                scan.jobCheckpoint = "filed"
+                scan.jobFailure = nil
+                scan.jobNextRetryAt = nil
+                do { try context.save(); return true } catch { context.rollback(); return false }
             }
+            guard completed else { return false }
             await upsertNoteEntity(
                 context: context,
                 notePath: result.notePath,
                 noteTitle: result.noteTitle,
                 noteMeta: result.noteMeta
             )
-            await VaultIndexStore.shared.updateAfterNoteWrite(
+            await indexStore.updateAfterNoteWrite(
                 notePath: result.notePath,
                 noteTitle: result.noteTitle,
                 noteMeta: result.noteMeta,
@@ -1503,7 +1543,7 @@ final class ProcessingQueue {
                         noteTitle: entity.title,
                         noteMeta: entityMeta
                     )
-                    await VaultIndexStore.shared.updateAfterNoteWrite(
+                    await indexStore.updateAfterNoteWrite(
                         notePath: entity.path,
                         noteTitle: entity.title,
                         noteMeta: entityMeta,
@@ -1511,8 +1551,7 @@ final class ProcessingQueue {
                     )
                 }
             }
-            await TaskConsolidator.refreshIfEnabled(context: context)
-            await TopicPageStore.refreshIfEnabled(context: context)
+            await refreshDerivedPages(context)
             return true
         } catch {
             await markScanError(objectID: objectID, context: context)
@@ -1556,6 +1595,8 @@ final class ProcessingQueue {
         await context.perform {
             guard let scan = try? context.existingObject(with: objectID) as? ScanEntity else { return }
             scan.status = ScanStatus.error.rawValue
+            scan.jobState = ProcessingJobState.needsAttention.rawValue
+            scan.jobFailure = "processing"
             try? context.save()
         }
     }
@@ -1590,993 +1631,5 @@ final class ProcessingQueue {
             }
             try? context.save()
         }
-    }
-}
-
-enum NetworkConstraintChecker {
-    static func isNetworkAvailable() async -> Bool {
-        await withCheckedContinuation { continuation in
-            let monitor = NWPathMonitor()
-            let queue = DispatchQueue(label: "marginshot.network.monitor")
-            monitor.pathUpdateHandler = { path in
-                let satisfied = path.status == .satisfied
-                monitor.cancel()
-                continuation.resume(returning: satisfied)
-            }
-            monitor.start(queue: queue)
-        }
-    }
-
-    static func isWiFiAvailable() async -> Bool {
-        await withCheckedContinuation { continuation in
-            let monitor = NWPathMonitor()
-            let queue = DispatchQueue(label: "marginshot.network.monitor")
-            monitor.pathUpdateHandler = { path in
-                let satisfied = path.status == .satisfied && path.usesInterfaceType(.wifi)
-                monitor.cancel()
-                continuation.resume(returning: satisfied)
-            }
-            monitor.start(queue: queue)
-        }
-    }
-}
-
-struct SyncPreferences {
-    var destination: SyncDestination {
-        let raw = UserDefaults.standard.string(forKey: SyncDefaults.destinationKey) ?? SyncDestination.off.rawValue
-        return SyncDestination(rawValue: raw) ?? .off
-    }
-
-    var requiresWiFi: Bool {
-        UserDefaults.standard.bool(forKey: SyncDefaults.wiFiOnlyKey)
-    }
-
-    var requiresExternalPower: Bool {
-        UserDefaults.standard.bool(forKey: SyncDefaults.requiresChargingKey)
-    }
-}
-
-enum SyncTrigger: String {
-    case processing
-    case applyToVault
-    case manual
-}
-
-enum SyncFolderSelection {
-    static func resolveURL() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: SyncDefaults.folderBookmarkKey) else {
-            return nil
-        }
-        var isStale = false
-        let url = try? URL(
-            resolvingBookmarkData: data,
-            options: [],
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
-        if isStale, let url {
-            refreshBookmark(for: url)
-        }
-        return url
-    }
-
-    private static func refreshBookmark(for url: URL) {
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        guard let data = try? url.bookmarkData(
-            options: [],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        ) else {
-            return
-        }
-        UserDefaults.standard.set(data, forKey: SyncDefaults.folderBookmarkKey)
-        UserDefaults.standard.set(url.lastPathComponent, forKey: SyncDefaults.folderDisplayNameKey)
-    }
-}
-
-private enum SyncManifestStore {
-    private static let folderManifestPrefix = "sync.folder.manifest."
-    private static let gitHubManifestPrefix = "sync.github.manifest."
-
-    static func loadFolderManifest(for destinationURL: URL, userDefaults: UserDefaults = .standard) -> Set<String> {
-        let key = folderManifestKey(for: destinationURL)
-        let items = userDefaults.stringArray(forKey: key) ?? []
-        return Set(items)
-    }
-
-    static func saveFolderManifest(_ manifest: Set<String>, for destinationURL: URL, userDefaults: UserDefaults = .standard) {
-        let key = folderManifestKey(for: destinationURL)
-        userDefaults.set(manifest.sorted(), forKey: key)
-    }
-
-    static func loadGitHubManifest(selection: GitHubRepoSelection) -> Set<String> {
-        let key = gitHubManifestKey(for: selection)
-        let items = UserDefaults.standard.stringArray(forKey: key) ?? []
-        return Set(items)
-    }
-
-    static func saveGitHubManifest(_ manifest: Set<String>, selection: GitHubRepoSelection) {
-        let key = gitHubManifestKey(for: selection)
-        UserDefaults.standard.set(manifest.sorted(), forKey: key)
-    }
-
-    private static func folderManifestKey(for destinationURL: URL) -> String {
-        "\(folderManifestPrefix)\(destinationURL.standardizedFileURL.path)"
-    }
-
-    private static func gitHubManifestKey(for selection: GitHubRepoSelection) -> String {
-        "\(gitHubManifestPrefix)\(selection.owner)/\(selection.name)#\(selection.branch)"
-    }
-}
-
-enum FolderSyncError: Error {
-    case documentsDirectoryUnavailable
-}
-
-enum FolderSyncer {
-    private static let fileManager = FileManager.default
-    private static let excludedSearchFiles: Set<String> = [
-        "_system/search.sqlite",
-        "_system/search.sqlite-wal",
-        "_system/search.sqlite-shm"
-    ]
-
-    static func syncVault(to destinationURL: URL, userDefaults: UserDefaults = .standard) throws {
-        let vaultURL = try vaultRootURL()
-        let didAccess = destinationURL.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                destinationURL.stopAccessingSecurityScopedResource()
-            }
-        }
-        let previousManifest = SyncManifestStore.loadFolderManifest(for: destinationURL, userDefaults: userDefaults)
-        let currentManifest = try syncDirectory(from: vaultURL, to: destinationURL, userDefaults: userDefaults)
-        let removed = previousManifest.subtracting(currentManifest)
-        try deleteRemovedFiles(removed, in: destinationURL)
-        SyncManifestStore.saveFolderManifest(currentManifest, for: destinationURL, userDefaults: userDefaults)
-    }
-
-    private static func vaultRootURL() throws -> URL {
-        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw FolderSyncError.documentsDirectoryUnavailable
-        }
-        return documentsURL.appendingPathComponent("vault", isDirectory: true)
-    }
-
-    @discardableResult
-    private static func syncDirectory(from sourceURL: URL, to destinationURL: URL, userDefaults: UserDefaults = .standard) throws -> Set<String> {
-        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
-        let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]
-        guard let enumerator = fileManager.enumerator(
-            at: sourceURL,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        var syncedFiles = Set<String>()
-        for case let fileURL as URL in enumerator {
-            let relativePath = relativePath(from: sourceURL, to: fileURL)
-            if excludedSearchFiles.contains(relativePath) {
-                continue
-            }
-            let targetURL = destinationURL.appendingPathComponent(relativePath)
-            let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
-
-            if resourceValues.isDirectory == true {
-                try fileManager.createDirectory(at: targetURL, withIntermediateDirectories: true, attributes: nil)
-                continue
-            }
-
-            if try shouldCopyFile(from: fileURL, to: targetURL, userDefaults: userDefaults) {
-                let parent = targetURL.deletingLastPathComponent()
-                try fileManager.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
-                try replaceItem(at: targetURL, with: fileURL)
-            }
-            syncedFiles.insert(relativePath)
-        }
-        return syncedFiles
-    }
-
-    private static func deleteRemovedFiles(_ removed: Set<String>, in destinationURL: URL) throws {
-        guard !removed.isEmpty else { return }
-        let rootURL = destinationURL.standardizedFileURL
-        var deletedPaths: [String] = []
-        for relativePath in removed {
-            guard !relativePath.isEmpty else { continue }
-            let targetURL = destinationURL.appendingPathComponent(relativePath)
-            guard isInside(targetURL, rootURL: rootURL) else { continue }
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: targetURL.path, isDirectory: &isDirectory) {
-                if isDirectory.boolValue {
-                    continue
-                }
-                try fileManager.removeItem(at: targetURL)
-                deletedPaths.append(relativePath)
-            }
-        }
-        removeEmptyDirectories(for: deletedPaths, rootURL: rootURL)
-    }
-
-    private static func isInside(_ url: URL, rootURL: URL) -> Bool {
-        let rootPath = rootURL.standardizedFileURL.path
-        let candidatePath = url.standardizedFileURL.path
-        return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
-    }
-
-    private static func removeEmptyDirectories(for deletedPaths: [String], rootURL: URL) {
-        guard !deletedPaths.isEmpty else { return }
-        for relativePath in deletedPaths {
-            var directoryURL = rootURL.appendingPathComponent(relativePath).deletingLastPathComponent()
-            while isInside(directoryURL, rootURL: rootURL), directoryURL != rootURL {
-                if let contents = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) {
-                    if contents.isEmpty {
-                        try? fileManager.removeItem(at: directoryURL)
-                        directoryURL.deleteLastPathComponent()
-                    } else {
-                        break
-                    }
-                } else {
-                    break
-                }
-            }
-        }
-    }
-
-    private static func relativePath(from baseURL: URL, to fileURL: URL) -> String {
-        let basePath = baseURL.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        guard filePath.hasPrefix(basePath) else {
-            return fileURL.lastPathComponent
-        }
-        var relative = String(filePath.dropFirst(basePath.count))
-        if relative.hasPrefix("/") {
-            relative.removeFirst()
-        }
-        return relative
-    }
-
-    private static func shouldCopyFile(from sourceURL: URL, to destinationURL: URL, userDefaults: UserDefaults = .standard) throws -> Bool {
-        guard fileManager.fileExists(atPath: destinationURL.path) else {
-            return true
-        }
-        let sourceAttributes = try fileManager.attributesOfItem(atPath: sourceURL.path)
-        let destinationAttributes = try fileManager.attributesOfItem(atPath: destinationURL.path)
-        if let sourceSize = sourceAttributes[.size] as? NSNumber,
-           let destinationSize = destinationAttributes[.size] as? NSNumber,
-           sourceSize != destinationSize {
-            return true
-        }
-        if let sourceDate = sourceAttributes[.modificationDate] as? Date,
-           let destinationDate = destinationAttributes[.modificationDate] as? Date,
-           sourceDate > destinationDate {
-            return true
-        }
-        return false
-    }
-
-    private static func replaceItem(at destinationURL: URL, with sourceURL: URL) throws {
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: sourceURL)
-        } else {
-            try fileManager.copyItem(at: sourceURL, to: destinationURL)
-        }
-    }
-}
-
-actor SyncCoordinator {
-    static let shared = SyncCoordinator()
-
-    private var isSyncing = false
-
-    func syncIfNeeded(trigger: SyncTrigger) async {
-        let prefs = SyncPreferences()
-        await SyncStatusStore.shared.updateDestination(prefs.destination)
-        guard !isSyncing else { return }
-        guard await constraintsSatisfied(prefs, destination: prefs.destination) else { return }
-        switch prefs.destination {
-        case .off:
-            return
-        case .folder:
-            await performFolderSync(trigger: trigger)
-        case .github:
-            await performGitHubSync(trigger: trigger)
-        case .gitRemote:
-            await SyncStatusStore.shared.markError("Custom Git remote sync is not available yet.")
-        }
-    }
-
-    private func performFolderSync(trigger: SyncTrigger) async {
-        guard let destinationURL = SyncFolderSelection.resolveURL() else {
-            await SyncStatusStore.shared.markError("Select a folder in Settings to enable sync.")
-            return
-        }
-
-        isSyncing = true
-        await SyncStatusStore.shared.markSyncing()
-        defer { isSyncing = false }
-
-        do {
-            try FolderSyncer.syncVault(to: destinationURL)
-            await SyncStatusStore.shared.markIdle()
-        } catch {
-            print("Sync failed (\(trigger.rawValue)): \(error)")
-            await SyncStatusStore.shared.markError("Sync failed. \(error.localizedDescription)")
-        }
-    }
-
-    private func performGitHubSync(trigger: SyncTrigger) async {
-        isSyncing = true
-        await SyncStatusStore.shared.markSyncing()
-        defer { isSyncing = false }
-
-        do {
-            try await performWithRetries(maxAttempts: 3, baseDelay: 2) {
-                try await GitHubSyncer.syncVault()
-            }
-            await SyncStatusStore.shared.markIdle()
-        } catch let syncError as GitHubSyncError {
-            if case .offline = syncError {
-                print("Sync skipped (\(trigger.rawValue)): offline")
-                await SyncStatusStore.shared.markIdleSkippingSync()
-                return
-            }
-            print("Sync failed (\(trigger.rawValue)): \(syncError)")
-            await SyncStatusStore.shared.markError(syncError.localizedDescription)
-        } catch {
-            print("Sync failed (\(trigger.rawValue)): \(error)")
-            await SyncStatusStore.shared.markError("Sync failed. \(error.localizedDescription)")
-        }
-    }
-
-    private func performWithRetries(
-        maxAttempts: Int,
-        baseDelay: TimeInterval,
-        operation: @escaping () async throws -> Void
-    ) async throws {
-        var attempt = 0
-        while true {
-            do {
-                try await operation()
-                return
-            } catch {
-                attempt += 1
-                if attempt >= maxAttempts || !shouldRetry(error) {
-                    throw error
-                }
-                let delay = min(baseDelay * pow(2, Double(attempt - 1)), 30)
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            }
-        }
-    }
-
-    private func shouldRetry(_ error: Error) -> Bool {
-        if let syncError = error as? GitHubSyncError {
-            return syncError.isRetryable
-        }
-        return true
-    }
-
-    private func constraintsSatisfied(_ prefs: SyncPreferences, destination: SyncDestination) async -> Bool {
-        if prefs.requiresExternalPower {
-            let hasPower = await MainActor.run {
-                UIDevice.current.isBatteryMonitoringEnabled = true
-                let state = UIDevice.current.batteryState
-                return state == .charging || state == .full
-            }
-            guard hasPower else { return false }
-        }
-        switch destination {
-        case .github:
-            if prefs.requiresWiFi {
-                let wifiAvailable = await NetworkConstraintChecker.isWiFiAvailable()
-                guard wifiAvailable else { return false }
-            } else {
-                let networkAvailable = await NetworkConstraintChecker.isNetworkAvailable()
-                guard networkAvailable else { return false }
-            }
-        case .folder:
-            if prefs.requiresWiFi {
-                let wifiAvailable = await NetworkConstraintChecker.isWiFiAvailable()
-                guard wifiAvailable else { return false }
-            }
-        default:
-            break
-        }
-        return true
-    }
-}
-
-struct GitHubRepoSelection {
-    let owner: String
-    let name: String
-    let branch: String
-
-    static func load() -> GitHubRepoSelection? {
-        let defaults = UserDefaults.standard
-        let owner = defaults.string(forKey: GitHubDefaults.repoOwnerKey) ?? ""
-        let name = defaults.string(forKey: GitHubDefaults.repoNameKey) ?? ""
-        let branch = defaults.string(forKey: GitHubDefaults.repoBranchKey) ?? ""
-        guard !owner.isEmpty, !name.isEmpty else {
-            return nil
-        }
-        return GitHubRepoSelection(owner: owner, name: name, branch: branch.isEmpty ? "main" : branch)
-    }
-}
-
-enum GitHubSyncError: LocalizedError {
-    case missingToken
-    case missingRepository
-    case vaultUnavailable
-    case unauthorized
-    case rateLimited
-    case serverError(Int)
-    case apiError(String)
-    case transportError(String)
-    case offline
-
-    var errorDescription: String? {
-        switch self {
-        case .missingToken:
-            return "Connect GitHub in Settings to enable sync."
-        case .missingRepository:
-            return "Select a GitHub repository in Settings to enable sync."
-        case .vaultUnavailable:
-            return "Vault is unavailable for GitHub sync."
-        case .unauthorized:
-            return "GitHub authorization expired. Sign in again."
-        case .rateLimited:
-            return "GitHub rate limit exceeded. Try again later."
-        case .serverError(let status):
-            return "GitHub server error (\(status)). Try again later."
-        case .apiError(let message):
-            return "GitHub sync failed. \(message)"
-        case .transportError(let message):
-            return "GitHub sync failed. \(message)"
-        case .offline:
-            return "GitHub sync skipped because you're offline."
-        }
-    }
-
-    var isRetryable: Bool {
-        switch self {
-        case .serverError, .transportError:
-            return true
-        case .offline:
-            return false
-        default:
-            return false
-        }
-    }
-}
-
-enum GitHubSyncer {
-    private static let fileManager = FileManager.default
-    private static let excludedSearchFiles: Set<String> = [
-        "_system/search.sqlite",
-        "_system/search.sqlite-wal",
-        "_system/search.sqlite-shm"
-    ]
-
-    static func syncVault() async throws {
-        guard let token = KeychainStore.readString(forKey: KeychainStore.githubAccessTokenKey) else {
-            throw GitHubSyncError.missingToken
-        }
-        guard let selection = GitHubRepoSelection.load() else {
-            throw GitHubSyncError.missingRepository
-        }
-        let vaultURL = try vaultRootURL()
-        let defaults = UserDefaults.standard
-        let lastSyncKey = GitHubDefaults.lastSyncAtKey(
-            owner: selection.owner,
-            name: selection.name,
-            branch: selection.branch
-        )
-        let lastSyncAt = defaults.object(forKey: lastSyncKey) as? Date
-        let snapshot = try vaultSnapshot(in: vaultURL, since: lastSyncAt)
-        let previousManifest = SyncManifestStore.loadGitHubManifest(selection: selection)
-        let removed = previousManifest.subtracting(snapshot.manifest)
-        guard !snapshot.changed.isEmpty || !removed.isEmpty else { return }
-
-        for file in snapshot.changed {
-            try await upload(file: file, selection: selection, token: token)
-        }
-        if !removed.isEmpty {
-            try await deleteRemovedFiles(removed, selection: selection, token: token)
-        }
-        SyncManifestStore.saveGitHubManifest(snapshot.manifest, selection: selection)
-        defaults.set(Date(), forKey: lastSyncKey)
-        defaults.removeObject(forKey: GitHubDefaults.lastSyncAtLegacyKey)
-    }
-
-    private struct VaultFile {
-        let url: URL
-        let relativePath: String
-        let modifiedAt: Date?
-    }
-
-    private static func vaultSnapshot(in rootURL: URL, since date: Date?) throws -> (changed: [VaultFile], manifest: Set<String>) {
-        let keys: Set<URLResourceKey> = [.isDirectoryKey, .contentModificationDateKey]
-        guard let enumerator = fileManager.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            return ([], [])
-        }
-
-        var files: [VaultFile] = []
-        var manifest = Set<String>()
-        for case let fileURL as URL in enumerator {
-            let values = try fileURL.resourceValues(forKeys: keys)
-            if values.isDirectory == true {
-                continue
-            }
-            let modifiedAt = values.contentModificationDate
-            let relativePath = relativePath(from: rootURL, to: fileURL)
-            if excludedSearchFiles.contains(relativePath) {
-                continue
-            }
-            manifest.insert(relativePath)
-            let isChanged: Bool
-            if let date {
-                if let modifiedAt {
-                    isChanged = modifiedAt > date
-                } else {
-                    isChanged = true
-                }
-            } else {
-                isChanged = true
-            }
-            if isChanged {
-                files.append(VaultFile(url: fileURL, relativePath: relativePath, modifiedAt: modifiedAt))
-            }
-        }
-        let sorted = files.sorted { $0.relativePath < $1.relativePath }
-        return (sorted, manifest)
-    }
-
-    private static func upload(
-        file: VaultFile,
-        selection: GitHubRepoSelection,
-        token: String
-    ) async throws {
-        do {
-            let data = try Data(contentsOf: file.url)
-            let content = data.base64EncodedString()
-            let message = "Sync vault: \(file.relativePath)"
-            try await putContentWithSHAFallback(
-                token: token,
-                selection: selection,
-                relativePath: file.relativePath,
-                content: content,
-                message: message
-            )
-        } catch let syncError as GitHubSyncError {
-            throw syncError
-        } catch let apiError as GitHubAPIError {
-            throw mapGitHubError(apiError)
-        } catch {
-            throw mapTransportError(error)
-        }
-    }
-
-    private static func deleteRemovedFiles(
-        _ removed: Set<String>,
-        selection: GitHubRepoSelection,
-        token: String
-    ) async throws {
-        for relativePath in removed.sorted() {
-            do {
-                guard let sha = try await GitHubAPI.fetchContentSHA(
-                    token: token,
-                    owner: selection.owner,
-                    repo: selection.name,
-                    path: relativePath,
-                    branch: selection.branch
-                ) else {
-                    continue
-                }
-                let message = "Sync vault: delete \(relativePath)"
-                try await GitHubAPI.deleteContent(
-                    token: token,
-                    owner: selection.owner,
-                    repo: selection.name,
-                    path: relativePath,
-                    branch: selection.branch,
-                    sha: sha,
-                    message: message
-                )
-            } catch let apiError as GitHubAPIError where apiError == .notFound {
-                continue
-            } catch let syncError as GitHubSyncError {
-                throw syncError
-            } catch let apiError as GitHubAPIError {
-                throw mapGitHubError(apiError)
-            } catch {
-                throw mapTransportError(error)
-            }
-        }
-    }
-
-    private static func putContentWithSHAFallback(
-        token: String,
-        selection: GitHubRepoSelection,
-        relativePath: String,
-        content: String,
-        message: String
-    ) async throws {
-        do {
-            try await GitHubAPI.putContent(
-                token: token,
-                owner: selection.owner,
-                repo: selection.name,
-                path: relativePath,
-                branch: selection.branch,
-                content: content,
-                message: message,
-                sha: nil
-            )
-        } catch let apiError as GitHubAPIError where apiError == .requiresSha {
-            guard let sha = try await GitHubAPI.fetchContentSHA(
-                token: token,
-                owner: selection.owner,
-                repo: selection.name,
-                path: relativePath,
-                branch: selection.branch
-            ) else {
-                throw GitHubSyncError.apiError("Missing remote file SHA for \(relativePath).")
-            }
-            try await GitHubAPI.putContent(
-                token: token,
-                owner: selection.owner,
-                repo: selection.name,
-                path: relativePath,
-                branch: selection.branch,
-                content: content,
-                message: message,
-                sha: sha
-            )
-        }
-    }
-
-    private static func mapGitHubError(_ error: GitHubAPIError) -> GitHubSyncError {
-        switch error {
-        case .unauthorized:
-            return .unauthorized
-        case .rateLimited:
-            return .rateLimited
-        case .serverError(let status, _):
-            return .serverError(status)
-        case .notFound:
-            return .apiError("Repository or path not found.")
-        case .invalidResponse:
-            return .transportError("Invalid response from GitHub.")
-        case .requiresSha:
-            return .apiError("GitHub requires a file SHA to update content.")
-        case .apiError(let message):
-            return .apiError(message)
-        }
-    }
-
-    private static func mapTransportError(_ error: Error) -> GitHubSyncError {
-        if let urlError = error as? URLError, isOfflineError(urlError) {
-            return .offline
-        }
-        return .transportError(error.localizedDescription)
-    }
-
-    private static func isOfflineError(_ error: URLError) -> Bool {
-        switch error.code {
-        case .notConnectedToInternet, .networkConnectionLost:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func vaultRootURL() throws -> URL {
-        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw GitHubSyncError.vaultUnavailable
-        }
-        return documentsURL.appendingPathComponent("vault", isDirectory: true)
-    }
-
-    private static func relativePath(from baseURL: URL, to fileURL: URL) -> String {
-        let basePath = baseURL.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        guard filePath.hasPrefix(basePath) else {
-            return fileURL.lastPathComponent
-        }
-        var relative = String(filePath.dropFirst(basePath.count))
-        if relative.hasPrefix("/") {
-            relative.removeFirst()
-        }
-        return relative
-    }
-}
-
-struct GitHubUser: Decodable {
-    let login: String
-}
-
-struct GitHubRepo: Identifiable, Decodable {
-    let id: Int
-    let name: String
-    let fullName: String
-    let owner: GitHubRepoOwner
-    let isPrivate: Bool
-    let defaultBranch: String
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case name
-        case fullName = "full_name"
-        case owner
-        case isPrivate = "private"
-        case defaultBranch = "default_branch"
-    }
-}
-
-struct GitHubRepoOwner: Decodable {
-    let login: String
-}
-
-struct GitHubContentResponse: Decodable {
-    let sha: String
-}
-
-struct GitHubCreateContentRequest: Encodable {
-    let message: String
-    let content: String
-    let branch: String
-    let sha: String?
-}
-
-struct GitHubDeleteContentRequest: Encodable {
-    let message: String
-    let sha: String
-    let branch: String
-}
-
-struct GitHubTokenResponse: Decodable {
-    let accessToken: String?
-    let error: String?
-    let errorDescription: String?
-
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case error
-        case errorDescription = "error_description"
-    }
-}
-
-struct GitHubAPIErrorResponse: Decodable {
-    let message: String?
-}
-
-enum GitHubAPIError: Error, Equatable {
-    case invalidResponse
-    case unauthorized
-    case notFound
-    case rateLimited
-    case requiresSha
-    case serverError(Int, String?)
-    case apiError(String)
-}
-
-enum GitHubAPI {
-    private static let baseURL = URL(string: "https://api.github.com")!
-
-    static func fetchUser(token: String) async throws -> GitHubUser {
-        let url = baseURL.appendingPathComponent("user")
-        let request = authorizedRequest(url: url, token: token)
-        let (data, _) = try await performRequest(request)
-        return try JSONDecoder().decode(GitHubUser.self, from: data)
-    }
-
-    static func fetchRepos(token: String) async throws -> [GitHubRepo] {
-        var components = URLComponents(url: baseURL.appendingPathComponent("user/repos"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "per_page", value: "100"),
-            URLQueryItem(name: "sort", value: "updated"),
-            URLQueryItem(name: "direction", value: "desc"),
-            URLQueryItem(name: "affiliation", value: "owner,collaborator,organization_member")
-        ]
-        guard let url = components?.url else {
-            throw GitHubAPIError.invalidResponse
-        }
-        let request = authorizedRequest(url: url, token: token)
-        let (data, _) = try await performRequest(request)
-        return try JSONDecoder().decode([GitHubRepo].self, from: data)
-    }
-
-    static func fetchContentSHA(
-        token: String,
-        owner: String,
-        repo: String,
-        path: String,
-        branch: String
-    ) async throws -> String? {
-        var components = URLComponents(url: contentsURL(owner: owner, repo: repo, path: path), resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "ref", value: branch)
-        ]
-        guard let url = components?.url else {
-            throw GitHubAPIError.invalidResponse
-        }
-        let request = authorizedRequest(url: url, token: token)
-        do {
-            let (data, _) = try await performRequest(request)
-            let response = try JSONDecoder().decode(GitHubContentResponse.self, from: data)
-            return response.sha
-        } catch let error as GitHubAPIError where error == .notFound {
-            return nil
-        }
-    }
-
-    static func putContent(
-        token: String,
-        owner: String,
-        repo: String,
-        path: String,
-        branch: String,
-        content: String,
-        message: String,
-        sha: String?
-    ) async throws {
-        let url = contentsURL(owner: owner, repo: repo, path: path)
-        var request = authorizedRequest(url: url, token: token, method: "PUT")
-        let payload = GitHubCreateContentRequest(
-            message: message,
-            content: content,
-            branch: branch,
-            sha: sha
-        )
-        request.httpBody = try JSONEncoder().encode(payload)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw GitHubAPIError.invalidResponse
-        }
-        if (200...299).contains(http.statusCode) {
-            return
-        }
-        if http.statusCode == 422 {
-            throw GitHubAPIError.requiresSha
-        }
-        try handleError(data, response: http)
-    }
-
-    static func deleteContent(
-        token: String,
-        owner: String,
-        repo: String,
-        path: String,
-        branch: String,
-        sha: String,
-        message: String
-    ) async throws {
-        let url = contentsURL(owner: owner, repo: repo, path: path)
-        var request = authorizedRequest(url: url, token: token, method: "DELETE")
-        let payload = GitHubDeleteContentRequest(message: message, sha: sha, branch: branch)
-        request.httpBody = try JSONEncoder().encode(payload)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw GitHubAPIError.invalidResponse
-        }
-        if (200...299).contains(http.statusCode) {
-            return
-        }
-        try handleError(data, response: http)
-    }
-
-    static func exchangeCodeForToken(
-        clientID: String,
-        code: String,
-        redirectURI: String,
-        codeVerifier: String
-    ) async throws -> String {
-        guard let url = URL(string: "https://github.com/login/oauth/access_token") else {
-            throw GitHubAPIError.invalidResponse
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let body = formURLEncoded([
-            "client_id": clientID,
-            "code": code,
-            "redirect_uri": redirectURI,
-            "code_verifier": codeVerifier
-        ])
-        request.httpBody = body.data(using: .utf8)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw GitHubAPIError.invalidResponse
-        }
-        guard (200...299).contains(http.statusCode) else {
-            try handleError(data, response: http)
-        }
-        let tokenResponse = try JSONDecoder().decode(GitHubTokenResponse.self, from: data)
-        if let accessToken = tokenResponse.accessToken {
-            return accessToken
-        }
-        if let errorDescription = tokenResponse.errorDescription {
-            throw GitHubAPIError.apiError(errorDescription)
-        }
-        throw GitHubAPIError.apiError("Missing access token.")
-    }
-
-    private static func authorizedRequest(url: URL, token: String, method: String = "GET") -> URLRequest {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        request.setValue("MarginShot", forHTTPHeaderField: "User-Agent")
-        return request
-    }
-
-    private static func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw GitHubAPIError.invalidResponse
-        }
-        if (200...299).contains(http.statusCode) {
-            return (data, http)
-        }
-        try handleError(data, response: http)
-    }
-
-    private static func handleError(_ data: Data, response: HTTPURLResponse) throws -> Never {
-        let message = (try? JSONDecoder().decode(GitHubAPIErrorResponse.self, from: data))?.message
-        if response.statusCode == 401 {
-            throw GitHubAPIError.unauthorized
-        }
-        if response.statusCode == 404 {
-            throw GitHubAPIError.notFound
-        }
-        if response.statusCode == 403,
-           response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0" {
-            throw GitHubAPIError.rateLimited
-        }
-        if (500...599).contains(response.statusCode) {
-            throw GitHubAPIError.serverError(response.statusCode, message)
-        }
-        throw GitHubAPIError.apiError(message ?? "HTTP \(response.statusCode)")
-    }
-
-    private static func contentsURL(owner: String, repo: String, path: String) -> URL {
-        var url = baseURL.appendingPathComponent("repos")
-        url.appendPathComponent(owner)
-        url.appendPathComponent(repo)
-        url.appendPathComponent("contents")
-        for component in path.split(separator: "/") {
-            url.appendPathComponent(String(component))
-        }
-        return url
-    }
-
-    private static let rfc3986AllowedCharacters: CharacterSet = {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return allowed
-    }()
-
-    private static func formURLEncoded(_ parameters: [String: String]) -> String {
-        parameters.map { key, value in
-            let encodedKey = key.addingPercentEncoding(withAllowedCharacters: rfc3986AllowedCharacters) ?? key
-            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: rfc3986AllowedCharacters) ?? value
-            return "\(encodedKey)=\(encodedValue)"
-        }
-        .joined(separator: "&")
     }
 }

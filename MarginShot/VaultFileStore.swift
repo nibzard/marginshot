@@ -20,8 +20,8 @@ enum VaultFileStore {
     }
 
     static func readData(from url: URL, userDefaults: UserDefaults = .standard) throws -> Data {
-        let data = try Data(contentsOf: url)
-        return try decryptDataIfNeeded(data, userDefaults: userDefaults)
+        let data = try VaultRepository.readStoredData(from: url)
+        return try decryptDataIfNeeded(data, userDefaults: userDefaults, key: VaultRepository.encryptionKey(for: url))
     }
 
     static func readText(
@@ -37,10 +37,8 @@ enum VaultFileStore {
     }
 
     static func writeData(_ data: Data, to url: URL, userDefaults: UserDefaults = .standard) throws {
-        let output = try encryptDataIfNeeded(data, userDefaults: userDefaults)
-        let directory = url.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-        try output.write(to: url, options: .atomic)
+        let output = try encryptDataIfNeeded(data, userDefaults: userDefaults, key: VaultRepository.encryptionKey(for: url))
+        try VaultRepository.writeStoredData(output, to: url)
     }
 
     static func writeText(_ text: String, to url: URL, userDefaults: UserDefaults = .standard) throws {
@@ -56,9 +54,9 @@ enum VaultFileStore {
 
     static func decryptedCopyURL(for url: URL, relativePath: String? = nil) -> URL? {
         do {
-            let raw = try Data(contentsOf: url)
+            let raw = try VaultRepository.readStoredData(from: url)
             guard isEncryptedData(raw) else { return url }
-            let decrypted = try decryptDataIfNeeded(raw)
+            let decrypted = try decryptDataIfNeeded(raw, key: VaultRepository.encryptionKey(for: url))
             let nameSource = relativePath ?? url.lastPathComponent
             let fileName = (nameSource as NSString).lastPathComponent
             let uniqueKey = relativePath ?? url.path
@@ -83,12 +81,12 @@ enum VaultFileStore {
         _ = try loadOrCreateKey()
     }
 
-    static func encryptDataIfNeeded(_ data: Data, userDefaults: UserDefaults = .standard) throws -> Data {
+    static func encryptDataIfNeeded(_ data: Data, userDefaults: UserDefaults = .standard, key: SymmetricKey? = nil) throws -> Data {
         guard isEncryptionEnabled(userDefaults: userDefaults) else { return data }
         if isEncryptedData(data) {
             return data
         }
-        let key = try loadOrCreateKey()
+        let key = try key ?? loadOrCreateKey()
         let sealedBox = try AES.GCM.seal(data, using: key)
         guard let combined = sealedBox.combined else {
             throw VaultFileStoreError.encryptionFailed
@@ -96,9 +94,9 @@ enum VaultFileStore {
         return encryptionHeader + combined
     }
 
-    static func decryptDataIfNeeded(_ data: Data, userDefaults: UserDefaults = .standard) throws -> Data {
+    static func decryptDataIfNeeded(_ data: Data, userDefaults: UserDefaults = .standard, key: SymmetricKey? = nil) throws -> Data {
         guard isEncryptedData(data) else { return data }
-        let key = try loadKey()
+        let key = try key ?? loadKey()
         let combined = Data(data.dropFirst(encryptionHeader.count))
         let sealedBox = try AES.GCM.SealedBox(combined: combined)
         return try AES.GCM.open(sealedBox, using: key)
@@ -159,8 +157,7 @@ enum VaultEncryptionManager {
         guard VaultFileStore.isEncryptionEnabled() else { return }
         Task.detached(priority: .utility) {
             do {
-                try VaultFileStore.ensureEncryptionKey()
-                try encryptVault()
+                try prepareVault()
             } catch {
                 print("Vault encryption failed: \(error)")
             }
@@ -175,38 +172,45 @@ enum VaultEncryptionManager {
         }
     }
 
-    private static func encryptVault() throws {
-        let rootURL = try vaultRootURL()
-        guard let enumerator = fileManager.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
+    /// Validate existing encrypted content before any bootstrap write can create a replacement key.
+    static func validateExistingKey(rootURL: URL? = nil, userDefaults: UserDefaults = .standard) throws {
+        let rootURL = try rootURL ?? vaultRootURL()
+        let repository = VaultRepository.register(rootURL: rootURL, userDefaults: userDefaults)
+        try repository.withAccess {
+            guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: [.isRegularFileKey]) else { return }
+            for case let url as URL in enumerator where VaultFileStore.isEncryptedFile(at: url) {
+                _ = try VaultFileStore.decryptDataIfNeeded(Data(contentsOf: url), userDefaults: userDefaults, key: repository.encryptionKey)
+                return
+            }
         }
+    }
 
-        for case let fileURL as URL in enumerator {
-            let values = try fileURL.resourceValues(forKeys: [.isDirectoryKey])
-            if values.isDirectory == true {
-                continue
+    static func prepareVault(rootURL: URL? = nil, userDefaults: UserDefaults = .standard) throws {
+        let rootURL = try rootURL ?? vaultRootURL()
+        let repository = VaultRepository.register(rootURL: rootURL, userDefaults: userDefaults)
+        try validateExistingKey(rootURL: rootURL, userDefaults: userDefaults)
+        guard VaultFileStore.isEncryptionEnabled(userDefaults: userDefaults) else { return }
+        if repository.encryptionKey == nil { try VaultFileStore.ensureEncryptionKey() }
+        try repository.withAccess {
+            try repository.encryptRecoveryArtifacts()
+            guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
+            for case let fileURL as URL in enumerator {
+                if try fileURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true { continue }
+                if shouldRemoveSearchIndex(fileURL) {
+                    try fileManager.removeItem(at: fileURL)
+                    continue
+                }
+                let data = try Data(contentsOf: fileURL)
+                if VaultFileStore.isEncryptedData(data) { continue }
+                try VaultFileStore.writeData(data, to: fileURL, userDefaults: userDefaults)
             }
-            if shouldRemoveSearchIndex(fileURL) {
-                try? fileManager.removeItem(at: fileURL)
-                continue
-            }
-            let data = try Data(contentsOf: fileURL)
-            if VaultFileStore.isEncryptedData(data) {
-                continue
-            }
-            let encrypted = try VaultFileStore.encryptDataIfNeeded(data)
-            try encrypted.write(to: fileURL, options: .atomic)
         }
     }
 
     private static func shouldRemoveSearchIndex(_ url: URL) -> Bool {
         let name = url.lastPathComponent
         if name == "search.sqlite" || name == "search.sqlite-wal" || name == "search.sqlite-shm" {
-            return url.path.contains("/vault/_system/")
+            return url.deletingLastPathComponent().lastPathComponent == "_system"
         }
         return false
     }

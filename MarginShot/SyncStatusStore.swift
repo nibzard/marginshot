@@ -12,7 +12,6 @@ final class SyncStatusStore: ObservableObject {
     @Published private(set) var destination: SyncDestination = .off
 
     private init() {
-        refreshDestination()
     }
 
     func refreshDestination() {
@@ -28,7 +27,7 @@ final class SyncStatusStore: ObservableObject {
             state = .off
             clearError()
         } else if state == .off {
-            state = .idle
+            state = .waiting
         }
     }
 
@@ -89,12 +88,17 @@ final class SyncStatusStore: ObservableObject {
         clearError()
     }
 
+    func markWaiting() {
+        guard destination != .off else { return }
+        state = .waiting
+    }
+
     func markIdleSkippingSync() {
         guard destination != .off else {
             state = .off
             return
         }
-        state = .idle
+        state = .waiting
         lastErrorMessage = nil
         lastErrorAt = nil
     }
@@ -113,7 +117,7 @@ final class SyncStatusStore: ObservableObject {
         lastErrorMessage = nil
         lastErrorAt = nil
         if destination != .off, state == .error {
-            state = .idle
+            state = .waiting
         }
     }
 }

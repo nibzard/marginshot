@@ -49,7 +49,7 @@ struct ApplyReviewSheet: View {
             }
         }
         .task {
-            entries = ApplyReviewBuilder.build(for: message.fileOps)
+            entries = await Task.detached(priority: .userInitiated) { ApplyReviewBuilder.build(for: message.fileOps) }.value
             isLoading = false
         }
     }
@@ -279,13 +279,13 @@ enum ApplyReviewBuilder {
         guard allowedExtensions.contains(ext) else {
             return (nil, "Only .md files can be modified.")
         }
-        let normalized = VaultFolder.normalizeTopLevelPath(trimmed, style: OrganizationPreferences().style)
+        let normalized = VaultFolder.normalizeTopLevelPath(trimmed, style: OrganizationPreferences(userDefaults: PresentationDefaults.current).style)
         return (normalized, nil)
     }
 
     private static func loadExistingContent(path: String) -> String? {
         guard let fileURL = VaultPreviewLocation.fileURL(relativePath: path) else { return nil }
-        return try? VaultFileStore.readText(from: fileURL)
+        return try? VaultFileStore.readText(from: fileURL, userDefaults: PresentationDefaults.current)
     }
 }
 
@@ -360,11 +360,7 @@ enum DiffBuilder {
 
 private enum VaultPreviewLocation {
     static func fileURL(relativePath: String) -> URL? {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return documentsURL
-            .appendingPathComponent("vault", isDirectory: true)
-            .appendingPathComponent(relativePath)
+        let root = DesignFixture.current?.root ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("vault")
+        return try? VaultRepository.register(rootURL: root, userDefaults: PresentationDefaults.current).validatedURL(relativePath)
     }
 }

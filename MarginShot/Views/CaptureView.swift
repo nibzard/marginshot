@@ -3,11 +3,13 @@ import CoreData
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import ImageIO
+import PhotosUI
 import SwiftUI
 import UIKit
 import Vision
 
 private func applyVideoRotationAngle(_ angle: CGFloat, to connection: AVCaptureConnection?) {
+    guard angle.isFinite else { return }
     guard let connection, connection.isVideoRotationAngleSupported(angle) else { return }
     connection.videoRotationAngle = angle
 }
@@ -15,8 +17,11 @@ private func applyVideoRotationAngle(_ angle: CGFloat, to connection: AVCaptureC
 struct CaptureView: View {
     @Environment(\.managedObjectContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.themeColors) private var theme
+    @EnvironmentObject private var syncStatus: SyncStatusStore
     @AppStorage("selectedNotebookId") private var selectedNotebookIdRaw = ""
-    @StateObject private var viewModel = CaptureViewModel()
+    @Binding var mode: AppMode
+    @StateObject private var viewModel = DesignFixture.current?.captureModel() ?? CaptureViewModel()
     @State private var hasBoundContext = false
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \NotebookEntity.createdAt, ascending: true)]
@@ -32,9 +37,15 @@ struct CaptureView: View {
     @State private var isNotebookPickerPresented = false
     @State private var isBatchPromptPresented = false
     @State private var completedBatchId: UUID?
+    @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var importing = false
+    @State private var importError: String?
+    @Binding var importRequested: Bool
     let onAskAboutBatch: (UUID) -> Void
 
-    init(onAskAboutBatch: @escaping (UUID) -> Void = { _ in }) {
+    init(mode: Binding<AppMode> = .constant(.capture), importRequested: Binding<Bool> = .constant(false), onAskAboutBatch: @escaping (UUID) -> Void = { _ in }) {
+        _mode = mode
+        _importRequested = importRequested
         self.onAskAboutBatch = onAskAboutBatch
     }
 
@@ -66,32 +77,44 @@ struct CaptureView: View {
 
     var body: some View {
         ZStack {
-            if viewModel.permissionState == .authorized {
-                CameraPreviewView(controller: viewModel.cameraController)
-                    .overlay(
-                        DocumentOutlineView(
-                            quad: viewModel.detectedQuad,
-                            previewLayer: viewModel.cameraController.previewLayer
-                        )
-                    )
-                    .ignoresSafeArea()
+            Color(uiColor: .systemBackground).ignoresSafeArea()
+            if viewModel.sessionState == .ready || viewModel.isProcessing {
+                if DesignFixture.current != nil, let image = UIImage(data: DesignFixture.pageImage()) {
+                    Image(uiImage: image).resizable().scaledToFit().padding(20)
+                } else {
+                    CameraPreviewView(controller: viewModel.cameraController)
+                        .overlay(DocumentOutlineView(quad: viewModel.detectedQuad, previewLayer: viewModel.cameraController.previewLayer))
+                        .ignoresSafeArea(edges: .horizontal)
+                }
             } else {
                 capturePlaceholder
             }
-
-            VStack {
-                topBar
-                Spacer()
-                captureControls
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
-
-            if viewModel.isProcessing {
-                ProcessingOverlay()
+        }
+        .safeAreaInset(edge: .top) {
+            if viewModel.sessionState == .ready {
+                Text(viewModel.batchNotebookName ?? resolvedNotebookName)
+                    .font(.callout).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(12).frame(maxWidth: .infinity)
+                    .background(Color(uiColor: .systemBackground))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom) { captureControls }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { isNotebookPickerPresented = true } label: {
+                    Label(viewModel.batchNotebookName ?? resolvedNotebookName, systemImage: "book.closed")
+                        .lineLimit(2)
+                }
+                .accessibilityLabel("Choose notebook: \(viewModel.batchNotebookName ?? resolvedNotebookName)")
+            }
+        }
+        .settingsToolbar()
+        .photosPicker(isPresented: $importRequested, selection: $photoSelection, maxSelectionCount: 20, matching: .images, preferredItemEncoding: .current)
+        .onChange(of: photoSelection) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await importPhotos(items) }
+        }
         .onAppear {
             if !hasBoundContext {
                 viewModel.bind(context: context)
@@ -99,38 +122,48 @@ struct CaptureView: View {
             }
             viewModel.ensureDefaultNotebookIfNeeded()
             refreshNotebookSelection()
-            viewModel.startSessionIfPossible()
+            if mode == .capture { viewModel.startSessionIfPossible() }
         }
         .onChange(of: scenePhase) { _, phase in
-            viewModel.handleScenePhase(phase)
+            if mode == .capture { viewModel.handleScenePhase(phase) }
         }
-        .onChange(of: selectedNotebookIdRaw) { _, _ in
-            viewModel.setSelectedNotebookID(selectedNotebookId)
+        .onChange(of: mode) { _, newMode in
+            if newMode == .capture { viewModel.startSessionIfPossible() }
+            else { viewModel.cameraController.stopSession(); viewModel.detectedQuad = nil }
         }
-        .onChange(of: notebooks.count) { _, _ in
-            refreshNotebookSelection()
-        }
-        .sheet(isPresented: $isInboxPresented) {
-            InboxSheet(viewModel: viewModel)
-        }
-        .sheet(isPresented: $isNotebookPickerPresented) {
-            NotebookPickerView(selectedNotebookId: notebookSelectionBinding)
-        }
-        .sheet(isPresented: $isSettingsPresented) {
-            SettingsView()
-        }
-        .confirmationDialog("Batch queued", isPresented: $isBatchPromptPresented, titleVisibility: .visible) {
+        .onChange(of: selectedNotebookIdRaw) { _, _ in viewModel.setSelectedNotebookID(selectedNotebookId) }
+        .onChange(of: notebooks.count) { _, _ in refreshNotebookSelection() }
+        .sheet(isPresented: $isInboxPresented) { InboxSheet(viewModel: viewModel) }
+        .sheet(isPresented: $isNotebookPickerPresented) { NotebookPickerView(selectedNotebookId: notebookSelectionBinding) }
+        .confirmationDialog("Pages saved", isPresented: $isBatchPromptPresented, titleVisibility: .visible) {
             Button("Ask about this") {
                 guard let batchId = completedBatchId else { return }
                 completedBatchId = nil
                 onAskAboutBatch(batchId)
             }
-            Button("Not now", role: .cancel) {
-                completedBatchId = nil
-            }
+            Button("Done", role: .cancel) { completedBatchId = nil }
         } message: {
-            Text("Processing in background. Ask about this batch while we finish organizing.")
+            Text(PresentationDefaults.current.bool(forKey: "privacySendImagesToLLM") ? "Scans are queued. Processing starts when your setup and background settings allow." : "Pages are saved locally. Allow image processing in Settings when you are ready.")
         }
+        .alert("Some photos need attention", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+            Button("OK") { importError = nil }
+        } message: { Text(importError ?? "") }
+    }
+
+    @MainActor
+    private func importPhotos(_ items: [PhotosPickerItem]) async {
+        guard !importing else { return }
+        importing = true
+        var failures = 0
+        for item in items {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else { throw CaptureStoreError.unsupportedImage }
+                try await viewModel.ingestImage(data)
+            } catch { failures += 1 }
+        }
+        importing = false
+        photoSelection = []
+        if failures > 0 { importError = "\(failures) photo(s) could not be imported or prepared. Every saved original is retained in pending scans. You can select failed photos again." }
     }
 
     private func refreshNotebookSelection() {
@@ -141,171 +174,114 @@ struct CaptureView: View {
         viewModel.setSelectedNotebookID(resolvedNotebook.id)
     }
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            statusPill
-            notebookButton
-            Spacer()
-            inboxButton
-            settingsButton
-        }
-    }
-
-    private var statusPill: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(viewModel.statusTint)
-                .frame(width: 8, height: 8)
-            Text(viewModel.statusText)
-                .font(.footnote)
-                .fontWeight(.semibold)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
-    }
-
-    private var notebookButton: some View {
-        Button {
-            isNotebookPickerPresented = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "book.closed")
-                Text(resolvedNotebookName)
-            }
-            .font(.caption)
-            .fontWeight(.semibold)
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(0.45), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Notebook \(resolvedNotebookName)")
-    }
-
-    private var inboxButton: some View {
-        Button {
-            isInboxPresented = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "tray.full")
-                Text("Inbox: \(inboxScans.count)")
-            }
-            .font(.caption)
-            .fontWeight(.semibold)
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(0.45), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Inbox \(inboxScans.count)")
-    }
-
-    private var settingsButton: some View {
-        Button {
-            isSettingsPresented = true
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.title3)
-                .foregroundColor(.white)
-                .padding(6)
-                .background(Color.black.opacity(0.45), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Settings")
-    }
-
     private var captureControls: some View {
-        VStack(spacing: 16) {
-            Button(action: viewModel.captureScan) {
-                ZStack {
-                    Circle()
-                        .strokeBorder(Color.white.opacity(0.7), lineWidth: 4)
-                    Circle()
-                        .fill(viewModel.canCapture ? Color.white : Color.gray.opacity(0.6))
-                        .padding(6)
+        VStack(spacing: 12) {
+            Text(viewModel.statusText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("captureStatus")
+            ViewThatFits(in: .horizontal) {
+                CenteredCaptureControlsLayout {
+                    importButton
+                    shutterButton
+                    recentBatch
                 }
-                .frame(width: 72, height: 72)
+                VStack(spacing: 12) { shutterButton; importButton; recentBatch }
+                    .frame(maxWidth: .infinity)
             }
-            .disabled(!viewModel.canCapture)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(Color(uiColor: .systemBackground))
+    }
 
-            HStack(spacing: 12) {
-                Text("Batch: On")
-                Text("Scans: \(viewModel.scanCount)")
-                if viewModel.scanCount > 0 {
-                    Button("Finish") {
-                        if let batchId = viewModel.finishBatch() {
-                            completedBatchId = batchId
-                            isBatchPromptPresented = true
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.2), in: Capsule())
-                    .disabled(viewModel.isProcessing)
+    private var importButton: some View {
+        Button { importRequested = true } label: {
+            Label("Import Photos", systemImage: "photo.on.rectangle")
+                .font(.callout).fixedSize().frame(minWidth: 44, minHeight: 44)
+        }.disabled(viewModel.isProcessing || importing)
+    }
+
+    private var shutterButton: some View {
+        Button(action: viewModel.captureScan) {
+            Circle().strokeBorder(viewModel.canCapture ? theme.accent : Color.secondary, lineWidth: 3)
+                .overlay(Circle().fill(viewModel.canCapture ? theme.accent : Color.secondary.opacity(0.3)).padding(7))
+                .frame(width: 72, height: 72)
+        }
+        .accessibilityLabel("Scan a page")
+        .disabled(!viewModel.canCapture || importing)
+    }
+
+    private var recentBatch: some View {
+        VStack(spacing: 4) {
+            if viewModel.scanCount > 0 {
+                Button("Finish") {
+                    if let batchId = viewModel.finishBatch() { completedBatchId = batchId; isBatchPromptPresented = true }
                 }
+                .buttonStyle(.borderedProminent)
+                .foregroundStyle(theme.scheme == .dark ? .black : .white)
+                .disabled(viewModel.isProcessing || importing)
+            } else {
+                Button { isInboxPresented = true } label: { Image(systemName: "tray").frame(width: 44, height: 44) }
+                    .accessibilityLabel("View pending scans")
             }
-            .font(.caption)
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.45), in: Capsule())
+            Text("\(viewModel.scanCount) pages").font(.caption).foregroundStyle(.secondary).fixedSize()
         }
     }
 
     private var capturePlaceholder: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(.systemGray5), Color(.systemGray4)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 12) {
-                Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 36, weight: .semibold))
-                Text(viewModel.permissionTitle)
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                Text(viewModel.permissionDetail)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-
-                if viewModel.permissionState == .notDetermined {
-                    Button("Allow Camera") {
-                        viewModel.requestPermission()
-                    }
-                    .buttonStyle(.borderedProminent)
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "camera.viewfinder").font(.system(size: 48)).foregroundStyle(.secondary)
+                Text(viewModel.permissionTitle).font(.title2.bold())
+                Text(viewModel.permissionDetail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if viewModel.permissionState == .notDetermined && DesignFixture.current == nil {
+                    Button("Start scanning") { viewModel.requestPermission() }.buttonStyle(.borderedProminent)
                 } else if viewModel.permissionState == .denied {
-                    Button("Open Settings") {
-                        viewModel.openSettings()
-                    }
-                    .buttonStyle(.bordered)
+                    Button("Open Settings") { viewModel.openSettings() }.buttonStyle(.bordered)
                 }
+                if viewModel.sessionState.canRetry {
+                    Button("Try Again") { viewModel.startSessionIfPossible() }.buttonStyle(.bordered)
+                }
+                Text(viewModel.batchNotebookName ?? resolvedNotebookName)
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .multilineTextAlignment(.center)
             .padding(24)
+            .frame(maxWidth: .infinity)
         }
+        .defaultScrollAnchor(.top)
     }
+
 }
 
-struct ProcessingOverlay: View {
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.2)
-                .ignoresSafeArea()
-            ProgressView("Processing scan...")
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        }
+private struct CenteredCaptureControlsLayout: Layout {
+    private let spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 3 else { return .zero }
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let sideWidth = max(sizes[0].width, sizes[2].width)
+        let minimumWidth = sizes[1].width + 2 * (sideWidth + spacing)
+        return CGSize(
+            width: max(proposal.width ?? minimumWidth, minimumWidth),
+            height: sizes.map(\.height).max() ?? 0
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: .unspecified)
     }
 }
 
 struct InboxSheet: View {
+    @State private var processingSettingsPresented = false
     @Environment(\.dismiss) private var dismiss
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \BatchEntity.createdAt, ascending: false)]
@@ -318,9 +294,14 @@ struct InboxSheet: View {
         NavigationStack {
             List {
                 if batchSections.isEmpty {
-                    Text("Inbox is clear.")
+                    Text("No scans waiting")
                         .foregroundColor(.secondary)
                 } else {
+                    Section {
+                        Button("Processing settings") { processingSettingsPresented = true }
+                        Text("Original pages are saved locally. Processing follows your image permission, setup, and background settings.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                     ForEach(batchSections, id: \.batch.objectID) { section in
                         Section {
                             ForEach(section.scans, id: \.objectID) { scan in
@@ -340,7 +321,8 @@ struct InboxSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Inbox")
+            .navigationTitle("Pending scans")
+            .sheet(isPresented: $processingSettingsPresented) { SettingsView(section: .processing) }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -377,30 +359,16 @@ struct InboxBatchHeader: View {
     let onRetry: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text("Batch \(batch.shortID)")
-                .font(.subheadline)
-            Spacer()
-            Text(batch.statusLabel)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            if let notebookName = batch.notebook?.name {
-                Text(notebookName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Text("\(scanCount) scans")
-                .font(.caption)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            if let name = batch.notebook?.name { Text(name).font(.headline).fixedSize(horizontal: false, vertical: true) }
+            Text("Batch \(batch.shortID) · \(scanCount) pages").font(.subheadline)
+            Text(batch.statusLabel).font(.callout).foregroundStyle(.secondary)
             if batch.statusEnum == .blocked || batch.statusEnum == .error {
-                Button("Retry") {
-                    onRetry()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                Button("Retry batch", action: onRetry).buttonStyle(.bordered).frame(minHeight: 44)
             }
         }
     }
+
 }
 
 struct InboxScanRow: View {
@@ -412,12 +380,17 @@ struct InboxScanRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(scan.pageLabel)
                     .font(.subheadline)
-                Text(scan.statusLabel)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if scan.jobState == ProcessingJobState.paused.rawValue {
+                    Label(scan.statusLabel, systemImage: "pause.circle").font(.callout)
+                    Text(scan.pauseExplanation).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else if scan.jobState == ProcessingJobState.needsAttention.rawValue || scan.statusEnum == .error {
+                    Label(scan.statusLabel, systemImage: "exclamationmark.triangle").font(.callout)
+                } else {
+                    Text(scan.statusLabel).font(.callout).foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            if scan.statusEnum == .error {
+            if scan.jobState == ProcessingJobState.needsAttention.rawValue || scan.statusEnum == .error {
                 Button("Retry") {
                     onRetry()
                 }
@@ -457,34 +430,56 @@ final class PreviewView: UIView {
     }
 }
 
-struct DocumentOutlineView: View {
-    let quad: DocumentQuad?
-    let previewLayer: AVCaptureVideoPreviewLayer?
+    struct DocumentOutlineView: View {
+        let quad: DocumentQuad?
+        let previewLayer: AVCaptureVideoPreviewLayer?
 
-    var body: some View {
-        GeometryReader { _ in
-            if let quad, let previewLayer {
-                let converted = quad.converted(using: previewLayer)
-                Path { path in
-                    path.move(to: converted.topLeft)
-                    path.addLine(to: converted.topRight)
-                    path.addLine(to: converted.bottomRight)
-                    path.addLine(to: converted.bottomLeft)
-                    path.closeSubpath()
+        var body: some View {
+            GeometryReader { _ in
+                if let quad,
+                   quad.isNormalizedFinite,
+                   let previewLayer,
+                   previewLayer.bounds.width.isFinite,
+                   previewLayer.bounds.height.isFinite,
+                   previewLayer.bounds.width > 0,
+                   previewLayer.bounds.height > 0 {
+                    let converted = quad.converted(using: previewLayer)
+                    if converted.isFinite {
+                        Path { path in
+                            path.move(to: converted.topLeft)
+                            path.addLine(to: converted.topRight)
+                            path.addLine(to: converted.bottomRight)
+                            path.addLine(to: converted.bottomLeft)
+                            path.closeSubpath()
+                        }
+                        .stroke(Color.green.opacity(0.85), lineWidth: 2)
+                        .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 2)
+                    }
                 }
-                .stroke(Color.green.opacity(0.85), lineWidth: 2)
-                .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 2)
             }
+            .allowsHitTesting(false)
         }
-        .allowsHitTesting(false)
     }
-}
 
 struct DocumentQuad: Equatable {
     let topLeft: CGPoint
     let topRight: CGPoint
     let bottomRight: CGPoint
     let bottomLeft: CGPoint
+
+    var isFinite: Bool {
+        [topLeft, topRight, bottomRight, bottomLeft].allSatisfy { point in
+            point.x.isFinite && point.y.isFinite
+        }
+    }
+
+    var isNormalizedFinite: Bool {
+        [topLeft, topRight, bottomRight, bottomLeft].allSatisfy { point in
+            point.x.isFinite && point.y.isFinite &&
+                (0...1).contains(point.x) &&
+                (0...1).contains(point.y)
+        }
+    }
 
     init(topLeft: CGPoint, topRight: CGPoint, bottomRight: CGPoint, bottomLeft: CGPoint) {
         self.topLeft = topLeft
@@ -503,7 +498,12 @@ struct DocumentQuad: Equatable {
     func converted(using layer: AVCaptureVideoPreviewLayer) -> DocumentQuad {
         func convert(_ point: CGPoint) -> CGPoint {
             let devicePoint = CGPoint(x: point.x, y: 1 - point.y)
-            return layer.layerPointConverted(fromCaptureDevicePoint: devicePoint)
+            let converted = layer.layerPointConverted(fromCaptureDevicePoint: devicePoint)
+            // If conversion produces NaN, return origin to avoid CoreGraphics errors
+            guard converted.x.isFinite, converted.y.isFinite else {
+                return .zero
+            }
+            return converted
         }
 
         return DocumentQuad(
@@ -517,7 +517,10 @@ struct DocumentQuad: Equatable {
 
 @MainActor
 final class CaptureViewModel: ObservableObject {
-    @Published var statusText: String = "Scanner Ready"
+    @Published var statusText: String = "Choose a page to begin"
+    @Published var sessionState: CameraSessionState = .idle
+    @Published var batchNotebookName: String?
+    private var batchNotebookID: UUID?
     @Published var scanCount: Int = 0
     @Published var isProcessing: Bool = false
     @Published var permissionState: CameraPermissionState = .notDetermined
@@ -530,63 +533,52 @@ final class CaptureViewModel: ObservableObject {
     private var batchId = UUID().uuidString
     private var pageIndex = 0
     private var captureRequestedAt: TimeInterval?
-    private var currentBatchObjectID: NSManagedObjectID?
+    private let captureStore: CaptureStore
 
-    var statusTint: Color {
-        if isProcessing {
-            return .yellow
-        }
-        switch permissionState {
-        case .authorized:
-            return .green
-        case .denied, .restricted:
-            return .red
-        case .notDetermined:
-            return .orange
-        }
-    }
-
-    var canCapture: Bool {
-        permissionState == .authorized && !isProcessing
-    }
+    var canCapture: Bool { permissionState == .authorized && sessionState == .ready && !isProcessing }
 
     var permissionTitle: String {
+        if (DesignFixture.current != nil && DesignFixture.current?.state != "camera-denied" && sessionState != .ready) || sessionState == .unavailable { return "Camera unavailable" }
         switch permissionState {
-        case .authorized:
-            return "Scanner Ready"
-        case .denied:
-            return "Camera Access Needed"
-        case .restricted:
-            return "Camera Restricted"
-        case .notDetermined:
-            return "Allow Camera Access"
+        case .authorized: return sessionState == .ready ? "Ready to scan" : sessionState.title
+        case .denied: return "Camera access is off"
+        case .restricted: return "Camera access is restricted"
+        case .notDetermined: return "Your next idea starts here"
         }
     }
 
     var permissionDetail: String {
+        if sessionState == .unavailable || (DesignFixture.current != nil && DesignFixture.current?.state != "camera-denied" && sessionState != .ready) { return "Import photos to add notebook pages on this device." }
         switch permissionState {
-        case .authorized:
-            return "Point at a page to detect the document frame."
-        case .denied:
-            return "Enable camera access in Settings to scan pages."
-        case .restricted:
-            return "Camera access is restricted on this device."
-        case .notDetermined:
-            return "MarginShot needs the camera to scan notebooks."
+        case .authorized: return sessionState.detail
+        case .denied: return "Allow camera access in Settings, or import selected photos. Library and Chat are always available."
+        case .restricted: return "You can still import selected photos and browse your notes."
+        case .notDetermined: return "Scan a notebook page or import photos. Originals are saved on your device."
         }
     }
 
-    init() {
+    private let enqueueProcessing: () -> Void
+
+    init(captureStore: CaptureStore = CaptureStore(), enqueueProcessing: @escaping () -> Void = { ProcessingQueue.shared.enqueuePendingProcessing() }) {
+        self.captureStore = captureStore
+        self.enqueueProcessing = enqueueProcessing
         let controller = CameraController()
         cameraController = controller
         controller.onDetectedQuad = { [weak self] quad in
+            guard let self, self.cameraController.session.isRunning else { return }
             Task { @MainActor in
-                self?.detectedQuad = quad
+                self.detectedQuad = quad
             }
         }
         controller.onPhotoCapture = { [weak self] result in
             Task { @MainActor in
                 self?.handlePhotoCapture(result)
+            }
+        }
+        controller.onStateChange = { [weak self] state in
+            Task { @MainActor in
+                self?.sessionState = state
+                if self?.isProcessing == false { self?.statusText = state.title }
             }
         }
         controller.onSessionError = { [weak self] error in
@@ -649,11 +641,23 @@ final class CaptureViewModel: ObservableObject {
     }
 
     func startSessionIfPossible() {
+        if let fixture = DesignFixture.current {
+            if ["camera-ready", "batch", "saving"].contains(fixture.state) {
+                permissionState = .authorized
+                sessionState = .ready
+                statusText = isProcessing ? "Saving page…" : "Ready to scan"
+            } else if fixture.state == "camera-denied" {
+                permissionState = .denied
+                sessionState = .idle
+                statusText = "Camera access is off"
+            } else { sessionState = .unavailable; statusText = "Camera unavailable" }
+            return
+        }
         refreshPermission()
         guard permissionState == .authorized else { return }
         cameraController.configureSessionIfNeeded()
         cameraController.startSession()
-        statusText = isProcessing ? "Processing scan..." : "Scanner Ready"
+
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
@@ -673,7 +677,9 @@ final class CaptureViewModel: ObservableObject {
         isProcessing = true
         statusText = "Capturing..."
         captureRequestedAt = CFAbsoluteTimeGetCurrent()
-        cameraController.capturePhoto()
+        if DesignFixture.current != nil {
+            Task { try? await ingestImage(DesignFixture.pageImage(), alreadySaving: true) }
+        } else { cameraController.capturePhoto() }
     }
 
     private func refreshPermission() {
@@ -691,7 +697,7 @@ final class CaptureViewModel: ObservableObject {
             permissionState = .restricted
         }
         if !isProcessing {
-            statusText = permissionState == .authorized ? "Scanner Ready" : permissionTitle
+            statusText = permissionTitle
         }
     }
 
@@ -705,120 +711,95 @@ final class CaptureViewModel: ObservableObject {
                     PerformanceMetricsStore.shared.recordDuration(.captureShutterLatency, seconds: shutterLatency)
                 }
             }
-            statusText = "Processing scan..."
-            let nextIndex = pageIndex + 1
-            let currentBatchId = batchId
-            Task(priority: .userInitiated) { [weak self] in
-                do {
-                    let stored = try await Task.detached(priority: .userInitiated) {
-                        try VaultScanStore.saveScan(
-                            rawData: data,
-                            processedData: nil,
-                            batchId: currentBatchId,
-                            pageIndex: nextIndex
-                        )
-                    }.value
-
-                    if let self {
-                        self.pageIndex = nextIndex
-                        self.scanCount = nextIndex
-                        self.persistScanIfPossible(stored, pageIndex: nextIndex, status: .preprocessing)
-                    }
-
-                    let processingResult = try await Task.detached(priority: .userInitiated) {
-                        let preprocessStart = CFAbsoluteTimeGetCurrent()
-                        let processed = try DocumentProcessingPipeline.process(imageData: data)
-                        let preprocessDuration = CFAbsoluteTimeGetCurrent() - preprocessStart
-                        let processedPath = try VaultScanStore.saveProcessedScan(
-                            processedData: processed.processedData,
-                            rawPath: stored.rawPath
-                        )
-                        return (processedPath, preprocessDuration)
-                    }.value
-
-                    let (processedPath, preprocessDuration) = processingResult
-                    let scansPerMinute = 60.0 / max(preprocessDuration, 0.001)
-                    PerformanceMetricsStore.shared.recordDuration(.capturePreprocessDuration, seconds: preprocessDuration)
-                    PerformanceMetricsStore.shared.record(.processingThroughput, value: scansPerMinute)
-
-                    if let self {
-                        self.updateScanStatus(
-                            forRawPath: stored.rawPath,
-                            status: .captured,
-                            processedPath: processedPath
-                        )
-                        self.statusText = "Saved scan \(nextIndex)"
-                        self.isProcessing = false
-                    }
-                } catch {
-                    if let self {
-                        self.statusText = "Processing failed"
-                        self.isProcessing = false
-                    }
-                }
+            Task { [weak self] in
+                do { try await self?.ingestImage(data, alreadySaving: true) }
+                catch { self?.statusText = "Page needs attention. Check pending scans." }
             }
-        case .failure:
-            statusText = "Capture failed"
+        case .failure(let error):
+            statusText = "Capture failed: \(error.localizedDescription)"
             isProcessing = false
             captureRequestedAt = nil
         }
     }
 
-    private func persistScanIfPossible(_ stored: StoredScan, pageIndex: Int, status: ScanStatus) {
-        guard let context else { return }
+    func ingestImage(_ data: Data, alreadySaving: Bool = false) async throws {
+        guard alreadySaving || !isProcessing else { throw CaptureStoreError.metadataUnavailable }
+        isProcessing = true
+        defer { isProcessing = false }
+        statusText = "Saving page…"
+        let format: CaptureImageFormat
+        do { format = try await Task.detached { try CaptureImageFormat.validated(data) }.value }
+        catch {
+            if alreadySaving {
+                // A camera result must be journaled even if decoding fails. Preserve legacy JPEG fallback.
+                format = .jpeg
+            } else {
+                statusText = "Unsupported photo. Select a JPEG, PNG, or HEIC image."
+                throw error
+            }
+        }
+        let nextIndex = pageIndex + 1
+        let currentBatchID = UUID(uuidString: batchId)!
+        if pageIndex == 0 { batchNotebookID = selectedNotebookID }
+        let notebookID = batchNotebookID
+        let store = captureStore
+        var rawPath: String?
         do {
-            let batch = try fetchOrCreateBatch(in: context)
-            let scan = ScanEntity(context: context)
-            scan.id = UUID()
-            scan.createdAt = Date()
-            scan.status = status.rawValue
-            scan.imagePath = stored.rawPath
-            scan.processedImagePath = stored.processedPath
-            scan.pageNumber = NSNumber(value: pageIndex)
-            scan.batch = batch
-            try context.save()
+            let record = try await Task.detached(priority: .userInitiated) {
+                try store.placeOriginal(data, batchID: currentBatchID, notebookID: notebookID, pageNumber: nextIndex, format: format)
+            }.value
+            guard let context else { throw CaptureStoreError.metadataUnavailable }
+            try store.persist(record, in: context)
+            rawPath = record.rawPath
+            pageIndex = nextIndex
+            scanCount = nextIndex
+            let request = NotebookEntity.fetchRequest()
+            if let notebookID { request.predicate = NSPredicate(format: "id == %@", notebookID as CVarArg) }
+            batchNotebookName = try context.fetch(request).first?.name
+            let processedPath = try await Task.detached(priority: .userInitiated) {
+                let processed = try DocumentProcessingPipeline.process(imageData: data)
+                return try VaultScanStore.saveProcessedScan(processedData: processed.processedData, rawPath: record.rawPath, rootURL: store.rootURL, userDefaults: store.userDefaults)
+            }.value
+            guard updateScanStatus(forRawPath: record.rawPath, status: .captured, processedPath: processedPath) else { throw CaptureStoreError.metadataUnavailable }
+            statusText = "Saved page \(nextIndex)"
         } catch {
-            statusText = "Saved scan, metadata failed"
+            if let rawPath { updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil) }
+            statusText = rawPath == nil ? "Could not save page. Try importing again." : "Original saved. Preparation needs attention in pending scans."
+            throw error
         }
     }
 
-    private func updateScanStatus(forRawPath rawPath: String, status: ScanStatus, processedPath: String?) {
-        guard let context else { return }
+    @discardableResult
+    private func updateScanStatus(forRawPath rawPath: String, status: ScanStatus, processedPath: String?) -> Bool {
+        guard let context else { return false }
         let request = ScanEntity.fetchRequest()
         request.fetchLimit = 1
         request.predicate = NSPredicate(format: "imagePath == %@", rawPath)
         do {
-            guard let scan = try context.fetch(request).first else { return }
+            guard let scan = try context.fetch(request).first else { return false }
             scan.status = status.rawValue
             if let processedPath {
                 scan.processedImagePath = processedPath
             } else if status == .error {
                 scan.processedImagePath = nil
             }
+            scan.jobState = (status == .error ? ProcessingJobState.needsAttention : ProcessingJobState.pending).rawValue
+            scan.jobCheckpoint = processedPath == nil ? "original" : "inputReady"
             try context.save()
+            return true
         } catch {
             statusText = "Scan update failed"
+            return false
         }
     }
 
     @discardableResult
     func finishBatch() -> UUID? {
-        guard let context else { return nil }
-        guard let objectID = currentBatchObjectID,
-              let batch = try? context.existingObject(with: objectID) as? BatchEntity else {
-            resetBatchSession()
-            statusText = "Batch reset"
-            return nil
-        }
-
-        batch.status = BatchStatus.queued.rawValue
-        batch.updatedAt = Date()
-        let finishedBatchId = batch.id
-
+        guard !isProcessing, scanCount > 0, let context, let batchUUID = UUID(uuidString: batchId) else { return nil }
         do {
-            try context.save()
+            let finishedBatchId = try captureStore.finishBatch(batchUUID, in: context)
             statusText = "Batch queued"
-            ProcessingQueue.shared.enqueuePendingProcessing()
+            enqueueProcessing()
             resetBatchSession()
             return finishedBatchId
         } catch {
@@ -849,15 +830,16 @@ final class CaptureViewModel: ObservableObject {
             return
         }
 
+        let store = captureStore
         Task.detached(priority: .userInitiated) { [weak self] in
             let scanPath = rawPath
             do {
-                let rawURL = try VaultScanStore.url(for: scanPath)
-                let rawData = try VaultFileStore.readData(from: rawURL)
+                let rawURL = store.rootURL.appendingPathComponent(scanPath)
+                let rawData = try VaultFileStore.readData(from: rawURL, userDefaults: store.userDefaults)
                 let processed = try DocumentProcessingPipeline.process(imageData: rawData)
                 let processedPath = try VaultScanStore.saveProcessedScan(
                     processedData: processed.processedData,
-                    rawPath: scanPath
+                    rawPath: scanPath, rootURL: store.rootURL, userDefaults: store.userDefaults
                 )
                 await MainActor.run { [weak self] in
                     self?.updateScanStatus(
@@ -886,6 +868,9 @@ final class CaptureViewModel: ObservableObject {
 
         var scansNeedingPreprocess: [String] = []
         for scan in pendingScans {
+            scan.jobState = ProcessingJobState.pending.rawValue
+            scan.jobNextRetryAt = nil
+            scan.jobFailure = nil
             guard let status = ScanStatus(rawValue: scan.status) else { continue }
             if status == .error || status == .preprocessing {
                 if scan.processedImagePath == nil {
@@ -903,7 +888,7 @@ final class CaptureViewModel: ObservableObject {
             try context.save()
             if scansNeedingPreprocess.isEmpty {
                 statusText = "Batch queued"
-                ProcessingQueue.shared.enqueuePendingProcessing()
+                enqueueProcessing()
                 return
             }
         } catch {
@@ -914,19 +899,20 @@ final class CaptureViewModel: ObservableObject {
         statusText = "Retrying batch..."
         isProcessing = true
 
+        let store = captureStore
         Task.detached(priority: .userInitiated) { [weak self] in
             let scansToProcess = scansNeedingPreprocess
             for rawPath in scansToProcess {
                 do {
-                    let rawURL = try VaultScanStore.url(for: rawPath)
-                    let rawData = try VaultFileStore.readData(from: rawURL)
+                    let rawURL = store.rootURL.appendingPathComponent(rawPath)
+                    let rawData = try VaultFileStore.readData(from: rawURL, userDefaults: store.userDefaults)
                     let processed = try DocumentProcessingPipeline.process(imageData: rawData)
                     let processedPath = try VaultScanStore.saveProcessedScan(
                         processedData: processed.processedData,
-                        rawPath: rawPath
+                        rawPath: rawPath, rootURL: store.rootURL, userDefaults: store.userDefaults
                     )
                     await MainActor.run { [weak self] in
-                        self?.updateScanStatus(
+                        _ = self?.updateScanStatus(
                             forRawPath: rawPath,
                             status: .captured,
                             processedPath: processedPath
@@ -934,20 +920,23 @@ final class CaptureViewModel: ObservableObject {
                     }
                 } catch {
                     await MainActor.run { [weak self] in
-                        self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
+                        _ = self?.updateScanStatus(forRawPath: rawPath, status: .error, processedPath: nil)
                     }
                 }
             }
             await MainActor.run { [weak self] in
                 self?.statusText = "Batch queued"
                 self?.isProcessing = false
-                ProcessingQueue.shared.enqueuePendingProcessing()
+                self?.enqueueProcessing()
             }
         }
     }
 
     private func requeueProcessing(for scan: ScanEntity, context: NSManagedObjectContext) {
-        scan.status = ScanStatus.captured.rawValue
+        scan.status = scan.jobCheckpoint == "structured" ? ScanStatus.structured.rawValue : ScanStatus.captured.rawValue
+        scan.jobState = ProcessingJobState.pending.rawValue
+        scan.jobFailure = nil
+        scan.jobNextRetryAt = nil
         if let batch = scan.batch {
             batch.status = BatchStatus.queued.rawValue
             batch.updatedAt = Date()
@@ -956,7 +945,7 @@ final class CaptureViewModel: ObservableObject {
         do {
             try context.save()
             statusText = "Queued for processing"
-            ProcessingQueue.shared.enqueuePendingProcessing()
+            enqueueProcessing()
         } catch {
             statusText = "Retry failed"
         }
@@ -973,69 +962,18 @@ final class CaptureViewModel: ObservableObject {
             batch.updatedAt = Date()
         }
         try? context.save()
-        ProcessingQueue.shared.enqueuePendingProcessing()
+        enqueueProcessing()
     }
 
     private func resetBatchSession() {
         batchId = UUID().uuidString
         pageIndex = 0
         scanCount = 0
-        currentBatchObjectID = nil
+        batchNotebookID = nil
+        batchNotebookName = nil
     }
 
-    private func fetchOrCreateBatch(in context: NSManagedObjectContext) throws -> BatchEntity {
-        if let objectID = currentBatchObjectID,
-           let existing = try? context.existingObject(with: objectID) as? BatchEntity {
-            return existing
-        }
 
-        let notebook = try fetchNotebook(in: context)
-        let batch = BatchEntity(context: context)
-        batch.id = UUID()
-        batch.createdAt = Date()
-        batch.status = BatchStatus.open.rawValue
-        batch.notebook = notebook
-        currentBatchObjectID = batch.objectID
-        return batch
-    }
-
-    private func fetchNotebook(in context: NSManagedObjectContext) throws -> NotebookEntity {
-        if let selectedNotebookID {
-            let request = NotebookEntity.fetchRequest()
-            request.fetchLimit = 1
-            request.predicate = NSPredicate(format: "id == %@", selectedNotebookID as CVarArg)
-            if let notebook = try context.fetch(request).first {
-                return notebook
-            }
-        }
-        return try fetchOrCreateDefaultNotebook(in: context)
-    }
-
-    private func fetchOrCreateDefaultNotebook(in context: NSManagedObjectContext) throws -> NotebookEntity {
-        let request = NotebookEntity.fetchRequest()
-        request.fetchLimit = 1
-        request.predicate = NSPredicate(format: "isDefault == YES")
-        if let notebook = try context.fetch(request).first {
-            return notebook
-        }
-
-        let anyRequest = NotebookEntity.fetchRequest()
-        anyRequest.fetchLimit = 1
-        if let notebook = try context.fetch(anyRequest).first {
-            notebook.isDefault = true
-            notebook.updatedAt = Date()
-            try? context.save()
-            return notebook
-        }
-
-        let notebook = NotebookEntity(context: context)
-        notebook.id = UUID()
-        notebook.name = "Default"
-        notebook.isDefault = true
-        notebook.createdAt = Date()
-        notebook.updatedAt = Date()
-        return notebook
-    }
 }
 
 enum CameraPermissionState: Equatable {
@@ -1052,6 +990,8 @@ final class CameraController: NSObject {
     var onDetectedQuad: ((DocumentQuad?) -> Void)?
     var onPhotoCapture: ((Result<Data, Error>) -> Void)?
     var onSessionError: ((Error) -> Void)?
+    var onStateChange: ((CameraSessionState) -> Void)?
+    private var observers: [NSObjectProtocol] = []
 
     private let sessionQueue = DispatchQueue(label: "marginshot.camera.session")
     private let videoQueue = DispatchQueue(label: "marginshot.camera.video")
@@ -1060,16 +1000,46 @@ final class CameraController: NSObject {
     private var cameraDevice: AVCaptureDevice?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var isConfigured = false
+    private var wantsRunning = false
     private var isDetecting = false
     private var lastDetectionTime: CFTimeInterval = 0
+
+    override init() {
+        super.init()
+        let center = NotificationCenter.default
+        for name in [AVCaptureSession.wasInterruptedNotification, AVCaptureSession.interruptionEndedNotification, AVCaptureSession.runtimeErrorNotification, AVCaptureSession.didStartRunningNotification, AVCaptureSession.didStopRunningNotification] {
+            observers.append(center.addObserver(forName: name, object: session, queue: nil) { [weak self] notification in
+                guard let self else { return }
+                self.sessionQueue.async {
+                    if notification.name == AVCaptureSession.runtimeErrorNotification {
+                        self.onStateChange?(self.wantsRunning ? .failed : .idle)
+                    } else if notification.name == AVCaptureSession.wasInterruptedNotification {
+                        self.onStateChange?(self.wantsRunning ? .interrupted : .idle)
+                    } else { self.publishReadiness() }
+                }
+            })
+        }
+    }
+
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+
+    private func publishReadiness() {
+        if !wantsRunning { onStateChange?(.idle) }
+        else if session.isInterrupted { onStateChange?(.interrupted) }
+        else if isConfigured && session.isRunning,
+                let connection = photoOutput.connection(with: .video), connection.isEnabled && connection.isActive { onStateChange?(.ready) }
+        else { onStateChange?(.failed) }
+    }
 
     func configureSessionIfNeeded() {
         sessionQueue.async { [weak self] in
             guard let self, !self.isConfigured else { return }
+            self.onStateChange?(.configuring)
             do {
                 try self.configureSession()
                 self.isConfigured = true
             } catch {
+                self.onStateChange?((error as? CameraControllerError) == .cameraUnavailable ? .unavailable : .failed)
                 self.onSessionError?(error)
             }
         }
@@ -1078,37 +1048,63 @@ final class CameraController: NSObject {
     func startSession() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            self.wantsRunning = true
             guard self.isConfigured else { return }
             if !self.session.isRunning {
                 self.session.startRunning()
             }
+            self.publishReadiness()
         }
     }
 
     func stopSession() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            self.wantsRunning = false
             if self.session.isRunning {
                 self.session.stopRunning()
             }
+            self.onStateChange?(.idle)
         }
     }
 
     func capturePhoto() {
-        let settings = AVCapturePhotoSettings()
-        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
-        settings.photoQualityPrioritization = .quality
-        photoOutput.capturePhoto(with: settings, delegate: self)
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.isConfigured else {
+                self.onPhotoCapture?(.failure(CameraControllerError.sessionNotConfigured))
+                return
+            }
+            guard self.session.isRunning else {
+                self.onPhotoCapture?(.failure(CameraControllerError.sessionNotRunning))
+                return
+            }
+            guard let connection = self.photoOutput.connection(with: .video),
+                  connection.isEnabled,
+                  connection.isActive else {
+                self.onPhotoCapture?(.failure(CameraControllerError.captureConnectionUnavailable))
+                return
+            }
+
+            let settings = AVCapturePhotoSettings()
+            settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+            settings.photoQualityPrioritization = .balanced
+            self.photoOutput.capturePhoto(with: settings, delegate: self)
+        }
     }
 
     func updatePreviewLayer(_ layer: AVCaptureVideoPreviewLayer) {
-        previewLayer = layer
-        updateRotationCoordinator(previewLayer: layer)
+        DispatchQueue.main.async { [weak self] in
+            self?.previewLayer = layer
+            self?.updateRotationCoordinator(previewLayer: layer)
+        }
     }
 
     private func configureSession() throws {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
+        session.inputs.forEach(session.removeInput)
+        session.outputs.forEach(session.removeOutput)
         session.sessionPreset = .photo
 
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
@@ -1119,11 +1115,11 @@ final class CameraController: NSObject {
         let input = try AVCaptureDeviceInput(device: camera)
         if session.canAddInput(input) {
             session.addInput(input)
-        }
+        } else { throw CameraControllerError.sessionNotConfigured }
 
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
-        }
+        } else { throw CameraControllerError.sessionNotConfigured }
         if let maxDimensions = maxPhotoDimensions(for: camera) {
             photoOutput.maxPhotoDimensions = maxDimensions
         }
@@ -1137,7 +1133,9 @@ final class CameraController: NSObject {
         }
         videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
 
-        updateRotationCoordinator()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateRotationCoordinator()
+        }
     }
 
     private func maxPhotoDimensions(for camera: AVCaptureDevice) -> CMVideoDimensions? {
@@ -1152,6 +1150,13 @@ final class CameraController: NSObject {
     private func updateRotationCoordinator(previewLayer: AVCaptureVideoPreviewLayer? = nil) {
         guard let cameraDevice else { return }
         let layer = previewLayer ?? self.previewLayer
+        guard let layer,
+              layer.bounds.width.isFinite,
+              layer.bounds.height.isFinite,
+              layer.bounds.width > 0,
+              layer.bounds.height > 0 else {
+            return
+        }
         rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: cameraDevice, previewLayer: layer)
         applyRotationAngles()
     }
@@ -1192,6 +1197,7 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
+        guard connection.isEnabled, connection.isActive else { return }
         let now = CACurrentMediaTime()
         guard now - lastDetectionTime > 0.2 else { return }
         guard !isDetecting else { return }
@@ -1221,9 +1227,12 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 }
 
-enum CameraControllerError: LocalizedError {
+enum CameraControllerError: LocalizedError, Equatable {
     case cameraUnavailable
     case captureFailed
+    case sessionNotConfigured
+    case sessionNotRunning
+    case captureConnectionUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -1231,6 +1240,12 @@ enum CameraControllerError: LocalizedError {
             return "Camera unavailable"
         case .captureFailed:
             return "Capture failed"
+        case .sessionNotConfigured:
+            return "Camera session not configured"
+        case .sessionNotRunning:
+            return "Camera session not running"
+        case .captureConnectionUnavailable:
+            return "Camera connection unavailable"
         }
     }
 }
@@ -1326,47 +1341,10 @@ struct StoredScan: Sendable {
 }
 
 enum VaultScanStore {
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
-    static func saveScan(
-        rawData: Data,
-        processedData: Data?,
-        batchId: String,
-        pageIndex: Int
-    ) throws -> StoredScan {
-        let fileManager = FileManager.default
-        let dateFolder = dateFormatter.string(from: Date())
-        let relativeDirectory = "scans/\(dateFolder)/batch-\(batchId)"
-        let vaultURL = try vaultRootURL()
-        let directoryURL = vaultURL.appendingPathComponent(relativeDirectory, isDirectory: true)
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-
-        let rawFileName = String(format: "page-%03d-raw.jpg", pageIndex)
-        let processedFileName = String(format: "page-%03d.jpg", pageIndex)
-        let rawURL = directoryURL.appendingPathComponent(rawFileName)
-        let processedURL = directoryURL.appendingPathComponent(processedFileName)
-
-        try VaultFileStore.writeData(rawData, to: rawURL)
-
-        let rawPath = "\(relativeDirectory)/\(rawFileName)"
-        var processedPath: String?
-        if let processedData {
-            try VaultFileStore.writeData(processedData, to: processedURL)
-            processedPath = "\(relativeDirectory)/\(processedFileName)"
-        }
-
-        return StoredScan(rawPath: rawPath, processedPath: processedPath)
-    }
-
-    static func saveProcessedScan(processedData: Data, rawPath: String) throws -> String {
+    static func saveProcessedScan(processedData: Data, rawPath: String, rootURL: URL? = nil, userDefaults: UserDefaults = .standard) throws -> String {
         let processedPath = processedPath(from: rawPath)
-        let processedURL = try url(for: processedPath)
-        try VaultFileStore.writeData(processedData, to: processedURL)
+        let processedURL = try rootURL?.appendingPathComponent(processedPath) ?? url(for: processedPath)
+        try VaultFileStore.writeData(processedData, to: processedURL, userDefaults: userDefaults)
         return processedPath
     }
 
@@ -1406,10 +1384,11 @@ enum VaultScanStore {
         if ext.isEmpty {
             return trimmedBase
         }
-        return "\(trimmedBase).\(ext)"
+        return "\(trimmedBase).jpg"
     }
 
     private static func vaultRootURL() throws -> URL {
+        if let fixture = DesignFixture.current { return fixture.root }
         let fileManager = FileManager.default
         guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw VaultStorageError.documentsDirectoryUnavailable
@@ -1436,7 +1415,7 @@ extension ScanStatus {
         case .filed:
             return "Filed"
         case .error:
-            return "Needs retry"
+            return "Needs attention"
         }
     }
 }
@@ -1453,9 +1432,9 @@ extension BatchStatus {
         case .done:
             return "Done"
         case .blocked:
-            return "Needs retry"
+            return "Needs attention"
         case .error:
-            return "Needs retry"
+            return "Needs attention"
         }
     }
 }
@@ -1466,7 +1445,24 @@ extension ScanEntity {
     }
 
     var statusLabel: String {
-        statusEnum?.label ?? status.capitalized
+        switch ProcessingJobState(rawValue: jobState ?? "") {
+        case .paused: return "Paused"
+        case .retryScheduled: return "Paused — will retry"
+        case .needsAttention: return "Needs attention"
+        case .running: return "Processing"
+        case .complete: return "Saved to vault"
+        default: return statusEnum == .preprocessing ? "Preparing scan" : (statusEnum == .captured ? "Saved" : (statusEnum?.label ?? status.capitalized))
+        }
+    }
+
+    var pauseExplanation: String {
+        switch jobFailure {
+        case "privacy", "imageUploadsDisabled": return "Image processing is off. You can change this in Processing settings."
+        case "charging": return "Waiting for this device to charge."
+        case "network": return "Waiting for a connection allowed by your Processing settings."
+        case "cancelledOrPrivacy": return "Processing stopped. Check image permission and background settings before retrying."
+        default: return "Check Processing settings to continue. Your original is retained."
+        }
     }
 
     var pageLabel: String {
@@ -1517,6 +1513,7 @@ extension CGImagePropertyOrientation {
 }
 
 #Preview {
-    CaptureView()
+    CaptureView(mode: .constant(.capture))
         .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+        .environmentObject(SyncStatusStore.shared)
 }

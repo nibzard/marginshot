@@ -1,6 +1,12 @@
 import CoreData
 import Foundation
 
+// ABOUTME: Core Data persistence controller for MarginShot's local data store
+// ABOUTME: Manages the NSPersistentContainer for scans, batches, notebooks, and sync state
+
+import CoreData
+import Foundation
+
 final class PersistenceController {
     static let shared = PersistenceController()
 
@@ -55,32 +61,78 @@ final class PersistenceController {
     }()
 
     let container: NSPersistentContainer
+    private(set) var isLoaded = false
 
-    init(inMemory: Bool = false) {
-        let model = Self.managedObjectModel
+    init(inMemory: Bool = false, storeURL: URL? = nil, legacySchema: Bool = false) {
+        let initStart = CFAbsoluteTimeGetCurrent()
+        let model = legacySchema ? Self.legacyModel : Self.managedObjectModel
+        let modelTime = (CFAbsoluteTimeGetCurrent() - initStart) * 1000
+
+        let containerStart = CFAbsoluteTimeGetCurrent()
         container = NSPersistentContainer(name: "MarginShotModel", managedObjectModel: model)
+        let containerTime = (CFAbsoluteTimeGetCurrent() - containerStart) * 1000
 
         if inMemory {
             container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
         }
 
+        if let storeURL { container.persistentStoreDescriptions.first?.url = storeURL }
         let description = container.persistentStoreDescriptions.first
         description?.shouldMigrateStoreAutomatically = true
         description?.shouldInferMappingModelAutomatically = true
 
-        container.loadPersistentStores { _, error in
-            if let error = error as NSError? {
-                fatalError("Unresolved Core Data error \(error), \(error.userInfo)")
-            }
-        }
-
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         container.viewContext.automaticallyMergesChangesFromParent = true
+
+        let totalTime = (CFAbsoluteTimeGetCurrent() - initStart) * 1000
+        print("⏱️ [PERF] PersistenceController.init took \(totalTime)ms (model: \(modelTime)ms, container: \(containerTime)ms)")
     }
 
-    private static let managedObjectModel: NSManagedObjectModel = {
+    func load() async throws {
+        guard !isLoaded else { return }
+        try migrateLegacyStoreIfNeeded()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            container.loadPersistentStores { _, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    self.isLoaded = true
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    private static let legacyModel = makeManagedObjectModel(includeJobs: false)
+    private static let managedObjectModel = makeManagedObjectModel(includeJobs: true)
+
+    private func migrateLegacyStoreIfNeeded() throws {
+        guard let url = container.persistentStoreDescriptions.first?.url,
+              url.path != "/dev/null", FileManager.default.fileExists(atPath: url.path) else { return }
+        let metadata = try NSPersistentStoreCoordinator.metadataForPersistentStore(ofType: NSSQLiteStoreType, at: url)
+        let destination = container.managedObjectModel
+        guard !destination.isConfiguration(withName: nil, compatibleWithStoreMetadata: metadata) else { return }
+        guard Self.legacyModel.isConfiguration(withName: nil, compatibleWithStoreMetadata: metadata) else {
+            throw NSError(domain: "MarginShotMigration", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unrecognized store schema. The original store has been preserved."])
+        }
+        let fileManager = FileManager.default
+        let staging = url.deletingLastPathComponent().appendingPathComponent("migration-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        let migrated = staging.appendingPathComponent("migrated.sqlite")
+        let mapping = try NSMappingModel.inferredMappingModel(forSourceModel: Self.legacyModel, destinationModel: destination)
+        let manager = NSMigrationManager(sourceModel: Self.legacyModel, destinationModel: destination)
+        try manager.migrateStore(from: url, sourceType: NSSQLiteStoreType, options: nil, with: mapping, toDestinationURL: migrated, destinationType: NSSQLiteStoreType, destinationOptions: nil)
+        // Preserve a coordinated SQLite copy including WAL content before replacing the original.
+        let backup = url.appendingPathExtension("v1-backup-\(UUID().uuidString).sqlite")
+        let coordinator = container.persistentStoreCoordinator
+        try coordinator.replacePersistentStore(at: backup, destinationOptions: nil, withPersistentStoreFrom: url, sourceOptions: nil, ofType: NSSQLiteStoreType)
+        try coordinator.replacePersistentStore(at: url, destinationOptions: nil, withPersistentStoreFrom: migrated, sourceOptions: nil, ofType: NSSQLiteStoreType)
+        try fileManager.removeItem(at: staging)
+    }
+
+    private static func makeManagedObjectModel(includeJobs: Bool) -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
-        model.versionIdentifiers = ["v1"]
+        model.versionIdentifiers = [includeJobs ? "v2" : "v1"]
 
         let notebook = NSEntityDescription()
         notebook.name = "Notebook"
@@ -205,6 +257,15 @@ final class PersistenceController {
             scanStructuredJSON,
             scanBatch
         ]
+        if includeJobs {
+            scan.properties += [
+                attribute(name: "jobState", type: .stringAttributeType, optional: true),
+                attribute(name: "jobCheckpoint", type: .stringAttributeType, optional: true),
+                attribute(name: "jobAttempts", type: .integer32AttributeType, optional: true),
+                attribute(name: "jobNextRetryAt", type: .dateAttributeType, optional: true),
+                attribute(name: "jobFailure", type: .stringAttributeType, optional: true)
+            ]
+        }
         scan.uniquenessConstraints = [["id"]]
 
         note.properties = [
@@ -244,7 +305,7 @@ final class PersistenceController {
 
         model.entities = [notebook, batch, scan, note, syncState, index]
         return model
-    }()
+    }
 
     private static func attribute(
         name: String,
@@ -382,6 +443,11 @@ extension ScanEntity {
     @NSManaged public var pageNumber: NSNumber?
     @NSManaged public var structuredMarkdown: String?
     @NSManaged public var structuredJSON: String?
+    @NSManaged public var jobState: String?
+    @NSManaged public var jobCheckpoint: String?
+    @NSManaged public var jobAttempts: NSNumber?
+    @NSManaged public var jobNextRetryAt: Date?
+    @NSManaged public var jobFailure: String?
     @NSManaged public var batch: BatchEntity?
 }
 

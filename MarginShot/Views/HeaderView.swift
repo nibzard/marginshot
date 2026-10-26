@@ -3,6 +3,7 @@ import SwiftUI
 enum SyncState: String {
     case off
     case idle
+    case waiting
     case syncing
     case error
 
@@ -10,6 +11,8 @@ enum SyncState: String {
         switch self {
         case .off:
             return "minus.circle"
+        case .waiting:
+            return "clock"
         case .idle:
             return "checkmark.circle"
         case .syncing:
@@ -22,13 +25,30 @@ enum SyncState: String {
     var accessibilityLabel: String {
         switch self {
         case .off:
-            return "Sync off"
+            return "Backup off"
+        case .waiting:
+            return "Backup pending"
         case .idle:
-            return "Sync idle"
+            return "Backed up"
         case .syncing:
-            return "Syncing"
+            return "Backing up"
         case .error:
-            return "Sync error"
+            return "Backup needs attention"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .off:
+            return "Off"
+        case .waiting:
+            return "Pending"
+        case .idle:
+            return "Backed up"
+        case .syncing:
+            return "Backing up"
+        case .error:
+            return "Issue"
         }
     }
 
@@ -36,7 +56,7 @@ enum SyncState: String {
         switch self {
         case .off:
             return .secondary
-        case .idle:
+        case .idle, .waiting:
             return .secondary
         case .syncing:
             return .blue
@@ -46,38 +66,11 @@ enum SyncState: String {
     }
 }
 
-struct HeaderView: View {
-    let mode: AppMode
-    let syncState: SyncState
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(mode.title)
-                .font(.headline)
-                .fontWeight(.semibold)
-            Spacer()
-            SyncStatusView(state: syncState)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
-    }
-}
-
 struct SyncStatusView: View {
     let state: SyncState
-
     var body: some View {
         Label(state.accessibilityLabel, systemImage: state.iconName)
-            .labelStyle(.iconOnly)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundColor(state.tint)
+            .font(.callout)
+            .foregroundStyle(state.tint)
     }
-}
-
-#Preview {
-    HeaderView(mode: .capture, syncState: .idle)
 }

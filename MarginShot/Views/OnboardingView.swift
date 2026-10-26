@@ -1,234 +1,60 @@
 import SwiftUI
 import AVFoundation
-import Photos
-import UIKit
 
 struct OnboardingView: View {
     @Binding var isComplete: Bool
-    @State private var step: OnboardingStep = .welcome
-    @State private var cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-    @State private var photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    var onImport: () -> Void = {}
+    @State private var allowProcessing = false
+    @Environment(\.themeColors) private var theme
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(.systemGray6), Color(.systemGray5)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 20) {
-                Spacer()
-                Text(step.title)
-                    .font(.largeTitle)
-                    .fontWeight(.semibold)
-                Text(step.subtitle)
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 24)
-                if step == .permissions {
-                    permissionRow(
-                        title: "Camera",
-                        detail: cameraDetail,
-                        buttonTitle: cameraButtonTitle,
-                        isEnabled: cameraStatus == .notDetermined,
-                        action: requestCameraAccess
-                    )
-                    permissionRow(
-                        title: "Photos (Optional)",
-                        detail: photoDetail,
-                        buttonTitle: photoButtonTitle,
-                        isEnabled: photoStatus == .notDetermined,
-                        action: requestPhotoAccess
-                    )
-                    if cameraStatus == .denied || cameraStatus == .restricted {
-                        Text("Camera access is required to scan pages. Enable it in Settings.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                        Button("Open Settings", action: openSettings)
-                            .buttonStyle(.bordered)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Image(systemName: "book.pages")
+                    .font(.system(size: 48))
+                    .foregroundStyle(theme.accent)
+                    .padding(.top, 48)
+                Text("Welcome to MarginShot").font(.largeTitle.bold())
+                Text("Keep the page. Find the idea.").font(.title2)
+                Text("Scan notebook pages or import selected photos. Your originals are saved locally, so you can collect ideas offline.")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Processing with Gemini", systemImage: "sparkles").font(.headline)
+                    Text("With your permission, page images go to Gemini to create notes. Chat sends your question and selected note text to Gemini; the image choice does not block text requests.")
+                    if PresentationDefaults.current.object(forKey: "privacySendImagesToLLM") == nil {
+                        Toggle("Process scans with Gemini", isOn: $allowProcessing)
+                        Text("Leave this off to keep pages local and pending. You can change it in Settings.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        Text("Your existing processing preference is preserved. You can change it in Settings.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Spacer()
-                Button(step.primaryButtonTitle) {
-                    advance()
+                Text("Backup is optional and stays separate from Gemini processing. Choose a destination later in Settings.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Start scanning") {
+                    finish()
+                    if DesignFixture.current == nil && AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+                        AVCaptureDevice.requestAccess(for: .video) { _ in }
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(step == .permissions && !cameraIsAuthorized)
-                if step == .permissions {
-                    Text("Photos access is optional and can be enabled later.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .foregroundStyle(theme.scheme == .dark ? .black : .white)
+                Button("Import Photos") { finish(); onImport() }
+                    .buttonStyle(.bordered).controlSize(.large)
+                Button("Explore the app") { finish() }
+                    .frame(minHeight: 44)
             }
+            .frame(maxWidth: 560, alignment: .leading)
             .padding(24)
+            .frame(maxWidth: .infinity)
         }
-        .onAppear(perform: refreshStatuses)
-        .onChange(of: step) { _, newValue in
-            if newValue == .permissions {
-                refreshStatuses()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            refreshStatuses()
-        }
+        .background(Color(uiColor: .systemBackground))
+        .tint(theme.accent)
     }
 
-    private var cameraIsAuthorized: Bool {
-        cameraStatus == .authorized
+    private func finish() {
+        ProcessingConsent.initialize(allowImages: allowProcessing, defaults: PresentationDefaults.current)
+        isComplete = true
     }
-
-    private var cameraDetail: String {
-        switch cameraStatus {
-        case .authorized:
-            return "Ready to scan."
-        case .denied, .restricted:
-            return "Access blocked."
-        case .notDetermined:
-            return "Needed for scanning pages."
-        @unknown default:
-            return "Check access."
-        }
-    }
-
-    private var photoDetail: String {
-        switch photoStatus {
-        case .authorized, .limited:
-            return "Import from your library."
-        case .denied, .restricted:
-            return "Access blocked."
-        case .notDetermined:
-            return "Optional for importing."
-        @unknown default:
-            return "Check access."
-        }
-    }
-
-    private var cameraButtonTitle: String {
-        switch cameraStatus {
-        case .authorized:
-            return "Enabled"
-        case .denied, .restricted:
-            return "Blocked"
-        case .notDetermined:
-            return "Enable"
-        @unknown default:
-            return "Enable"
-        }
-    }
-
-    private var photoButtonTitle: String {
-        switch photoStatus {
-        case .authorized, .limited:
-            return "Enabled"
-        case .denied, .restricted:
-            return "Blocked"
-        case .notDetermined:
-            return "Enable"
-        @unknown default:
-            return "Enable"
-        }
-    }
-
-    private func advance() {
-        switch step {
-        case .welcome:
-            step = .permissions
-        case .permissions:
-            isComplete = true
-        }
-    }
-
-    private func refreshStatuses() {
-        cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-        photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-    }
-
-    private func requestCameraAccess() {
-        AVCaptureDevice.requestAccess(for: .video) { _ in
-            DispatchQueue.main.async {
-                refreshStatuses()
-            }
-        }
-    }
-
-    private func requestPhotoAccess() {
-        PHPhotoLibrary.requestAuthorization(for: .readWrite) { _ in
-            DispatchQueue.main.async {
-                refreshStatuses()
-            }
-        }
-    }
-
-    private func openSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(url)
-    }
-
-    @ViewBuilder
-    private func permissionRow(
-        title: String,
-        detail: String,
-        buttonTitle: String,
-        isEnabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            Button(buttonTitle, action: action)
-                .buttonStyle(.bordered)
-                .disabled(!isEnabled)
-        }
-        .padding(16)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-}
-
-private enum OnboardingStep {
-    case welcome
-    case permissions
-
-    var title: String {
-        switch self {
-        case .welcome:
-            return "Welcome to MarginShot"
-        case .permissions:
-            return "Enable Access"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .welcome:
-            return "Snap notebook pages and chat with them later. Notes stay local until you enable sync."
-        case .permissions:
-            return "We use the camera for scanning and photos for optional imports."
-        }
-    }
-
-    var primaryButtonTitle: String {
-        switch self {
-        case .welcome:
-            return "Get Started"
-        case .permissions:
-            return "Continue"
-        }
-    }
-}
-
-#Preview {
-    OnboardingView(isComplete: .constant(false))
 }

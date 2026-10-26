@@ -115,20 +115,30 @@ struct Classification: Codable {
     let reason: String?
 }
 
+struct ProcessingCheckpoint {
+    let stage: String
+    let transcript: TranscriptionPayload
+    let transcriptJSON: String
+    let structured: StructurePayload?
+    let structuredJSON: String?
+}
+
 enum ScanProcessingPipeline {
     static func process(
         input: ScanProcessingInput,
         mode: ProcessingQualityMode,
         client: GeminiClient,
-        context: ProcessingContextSnapshot
+        context: ProcessingContextSnapshot,
+        checkpoint: ProcessingCheckpoint? = nil,
+        saveCheckpoint: (ProcessingCheckpoint) async throws -> Void = { _ in }
     ) async throws -> ScanProcessingOutput {
         switch mode {
         case .fast:
             return try await processFast(input: input, client: client, context: context)
         case .balanced:
-            return try await processBalanced(input: input, client: client, context: context)
+            return try await processStaged(input: input, client: client, context: context, refineOutput: false, checkpoint: checkpoint, saveCheckpoint: saveCheckpoint)
         case .best:
-            return try await processBest(input: input, client: client, context: context)
+            return try await processStaged(input: input, client: client, context: context, refineOutput: true, checkpoint: checkpoint, saveCheckpoint: saveCheckpoint)
         }
     }
 
@@ -183,60 +193,47 @@ enum ScanProcessingPipeline {
         )
     }
 
-    private static func processBalanced(
+    private static func processStaged(
         input: ScanProcessingInput,
         client: GeminiClient,
-        context: ProcessingContextSnapshot
+        context: ProcessingContextSnapshot,
+        refineOutput: Bool,
+        checkpoint: ProcessingCheckpoint?,
+        saveCheckpoint: (ProcessingCheckpoint) async throws -> Void
     ) async throws -> ScanProcessingOutput {
-        let transcriptResponse = try await transcribe(input: input, client: client)
-        try validateTranscript(transcriptResponse.value.rawTranscript)
-
-        let structuredResponse = try await structure(
-            transcript: transcriptResponse.value.rawTranscript,
-            client: client,
-            context: context
-        )
-        try validateMarkdown(structuredResponse.value.markdown, title: structuredResponse.value.noteMeta.title)
-        try validateClassification(structuredResponse.value.classification)
-
-        return ScanProcessingOutput(
-            transcript: transcriptResponse.value,
-            transcriptJSON: transcriptResponse.rawJSON,
-            structured: structuredResponse.value,
-            structuredJSON: structuredResponse.rawJSON
-        )
-    }
-
-    private static func processBest(
-        input: ScanProcessingInput,
-        client: GeminiClient,
-        context: ProcessingContextSnapshot
-    ) async throws -> ScanProcessingOutput {
-        let transcriptResponse = try await transcribe(input: input, client: client)
-        try validateTranscript(transcriptResponse.value.rawTranscript)
-
-        let structuredResponse = try await structure(
-            transcript: transcriptResponse.value.rawTranscript,
-            client: client,
-            context: context
-        )
-        try validateMarkdown(structuredResponse.value.markdown, title: structuredResponse.value.noteMeta.title)
-        try validateClassification(structuredResponse.value.classification)
-
-        let refinedResponse = try await refine(
-            structuredJSON: structuredResponse.rawJSON,
-            client: client,
-            context: context
-        )
-        try validateMarkdown(refinedResponse.value.markdown, title: refinedResponse.value.noteMeta.title)
-        try validateClassification(refinedResponse.value.classification)
-
-        return ScanProcessingOutput(
-            transcript: transcriptResponse.value,
-            transcriptJSON: transcriptResponse.rawJSON,
-            structured: refinedResponse.value,
-            structuredJSON: refinedResponse.rawJSON
-        )
+        let transcript: TranscriptionPayload
+        let transcriptJSON: String
+        if let checkpoint {
+            transcript = checkpoint.transcript
+            transcriptJSON = checkpoint.transcriptJSON
+        } else {
+            let response = try await transcribe(input: input, client: client)
+            try validateTranscript(response.value.rawTranscript)
+            transcript = response.value
+            transcriptJSON = response.rawJSON
+            try await saveCheckpoint(ProcessingCheckpoint(stage: "transcribed", transcript: transcript, transcriptJSON: transcriptJSON, structured: nil, structuredJSON: nil))
+        }
+        let structured: StructurePayload
+        let structuredJSON: String
+        if let saved = checkpoint?.structured, let json = checkpoint?.structuredJSON {
+            structured = saved
+            structuredJSON = json
+        } else {
+            let response = try await structure(transcript: transcript.rawTranscript, client: client, context: context)
+            try validateMarkdown(response.value.markdown, title: response.value.noteMeta.title)
+            try validateClassification(response.value.classification)
+            structured = response.value
+            structuredJSON = response.rawJSON
+            try await saveCheckpoint(ProcessingCheckpoint(stage: refineOutput ? "organized" : "structured", transcript: transcript, transcriptJSON: transcriptJSON, structured: structured, structuredJSON: structuredJSON))
+        }
+        if refineOutput && checkpoint?.stage != "structured" {
+            let response = try await refine(structuredJSON: structuredJSON, client: client, context: context)
+            try validateMarkdown(response.value.markdown, title: response.value.noteMeta.title)
+            try validateClassification(response.value.classification)
+            try await saveCheckpoint(ProcessingCheckpoint(stage: "structured", transcript: transcript, transcriptJSON: transcriptJSON, structured: response.value, structuredJSON: response.rawJSON))
+            return ScanProcessingOutput(transcript: transcript, transcriptJSON: transcriptJSON, structured: response.value, structuredJSON: response.rawJSON)
+        }
+        return ScanProcessingOutput(transcript: transcript, transcriptJSON: transcriptJSON, structured: structured, structuredJSON: structuredJSON)
     }
 
     private static func transcribe(

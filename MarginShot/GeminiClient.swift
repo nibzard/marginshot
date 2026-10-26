@@ -3,6 +3,7 @@ import Security
 
 enum GeminiClientError: Error, LocalizedError {
     case missingAPIKey
+    case imageUploadsDisabled
     case invalidURL
     case keychainSaveFailed
     case requestFailed(statusCode: Int, message: String?)
@@ -13,6 +14,8 @@ enum GeminiClientError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .imageUploadsDisabled:
+            return "Processing paused. Image uploads are disabled in Settings."
         case .missingAPIKey:
             return "Missing Gemini API key."
         case .invalidURL:
@@ -107,11 +110,13 @@ struct GeminiConfiguration {
 
 final class GeminiClient {
     private let configuration: GeminiConfiguration
+    private let allowsImageUploads: () -> Bool
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(configuration: GeminiConfiguration, session: URLSession = .shared) {
+    init(configuration: GeminiConfiguration, session: URLSession = .shared, allowsImageUploads: @escaping () -> Bool = { ProcessingPreferences().allowsImageUploads }) {
+        self.allowsImageUploads = allowsImageUploads
         self.configuration = configuration
         self.session = session
     }
@@ -181,6 +186,14 @@ final class GeminiClient {
     }
 
     private func execute(_ body: GenerateContentRequest) async throws -> GenerateContentResponse {
+        try Task.checkCancellation()
+        let messages = body.contents + (body.systemInstruction.map { [$0] } ?? [])
+        let includesImages = messages.contains { message in
+            message.parts.contains { $0.inlineData?.mimeType.lowercased().hasPrefix("image/") == true }
+        }
+        guard !includesImages || allowsImageUploads() else {
+            throw GeminiClientError.imageUploadsDisabled
+        }
         var request = try makeRequest(body: body)
         request.timeoutInterval = configuration.timeout
         let (data, response) = try await session.data(for: request)
@@ -458,5 +471,47 @@ private extension URLError {
         default:
             return false
         }
+    }
+}
+
+// Privacy revocation and cooperative/network cancellation preserve retryable work.
+enum ProcessingInterruption {
+    static func isPause(_ error: Error) -> Bool {
+        if Task.isCancelled || error is CancellationError { return true }
+        if let error = error as? URLError { return error.code == .cancelled }
+        if let error = error as? GeminiClientError {
+            switch error {
+            case .imageUploadsDisabled: return true
+            case .network(let underlying): return underlying.code == .cancelled
+            default: return false
+            }
+        }
+        return false
+    }
+}
+
+/// Read-only configuration inspection. Never migrates credentials or writes to Keychain.
+enum GeminiSetupStatus: Equatable {
+    case ready, missingKey, secureStorageUnavailable
+
+    static func inspect(bundle: Bundle = .main, defaults: UserDefaults = .standard, readKey: () throws -> String? = { try KeychainStore.readStringChecked(forKey: KeychainStore.geminiAPIKeyKey) }) -> GeminiSetupStatus {
+        do {
+            let stored = try readKey()
+            let candidates = [stored, defaults.string(forKey: "GeminiAPIKey"), bundle.object(forInfoDictionaryKey: "GeminiAPIKey") as? String]
+            return candidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.contains { !$0.isEmpty && $0 != "REPLACE_ME" && !$0.hasPrefix("$(") } ? .ready : .missingKey
+        } catch { return .secureStorageUnavailable }
+    }
+}
+
+extension KeychainStore {
+    static func readStringChecked(forKey key: String) throws -> String? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: key, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        return value
     }
 }

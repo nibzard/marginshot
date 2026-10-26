@@ -11,6 +11,7 @@ struct SystemRulesEditorView: View {
                 TextEditor(text: $rulesText)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 240)
+                    .accessibilityLabel("System rules")
             } footer: {
                 Text("Stored at vault/_system/SYSTEM.md. Rules are appended to prompts during processing and chat.")
             }
@@ -41,7 +42,7 @@ struct SystemRulesEditorView: View {
     }
 
     private func loadRules() {
-        let rules = SystemRulesStore.load()
+        let rules = DesignFixture.current == nil ? SystemRulesStore.load() : SystemRulesStore.defaultRules
         rulesText = rules
         originalRules = rules
         statusMessage = nil
@@ -49,7 +50,9 @@ struct SystemRulesEditorView: View {
 
     private func saveRules() {
         do {
-            try SystemRulesStore.save(rulesText)
+            if let fixture = DesignFixture.current {
+                try VaultFileStore.writeText(rulesText, to: fixture.root.appendingPathComponent("_system/SYSTEM.md"), userDefaults: fixture.defaults)
+            } else { try SystemRulesStore.save(rulesText) }
             originalRules = rulesText
             statusMessage = "System rules saved."
         } catch {

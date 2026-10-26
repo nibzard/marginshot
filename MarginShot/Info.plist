@@ -10,6 +10,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -33,11 +35,10 @@
 	<string>https://generativelanguage.googleapis.com</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Use the camera to scan notebook pages.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Allow photo access to import existing pages.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.example.MarginShot.processing</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).processing</string>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).backup</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

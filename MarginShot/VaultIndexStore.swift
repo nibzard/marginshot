@@ -31,6 +31,7 @@ struct ContextNote: Codable, Equatable {
     let links: [String]?
     let excerpt: String?
     let body: String?
+    var revision: VaultExpectedRevision? = nil
 }
 
 struct ContextSource: Codable, Equatable {
@@ -43,6 +44,7 @@ struct ContextBundle: Codable {
     let generatedAt: String?
     let notes: [ContextNote]
     let sources: [ContextSource]
+    var retrievalStatus: String? = nil
 }
 
 enum VaultIndexError: Error {
@@ -62,75 +64,99 @@ final class VaultIndexStore {
     private let sqliteQueue = DispatchQueue(label: "marginshot.index.sqlite")
     private let persistenceController: PersistenceController
 
-    private init() {
+    private let rootOverride: URL?
+    private let userDefaults: UserDefaults
+
+    init(rootURL: URL? = nil, persistenceController: PersistenceController = .shared, userDefaults: UserDefaults = .standard) {
+        self.rootOverride = rootURL
+        self.userDefaults = userDefaults
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.encoder = encoder
         self.decoder = JSONDecoder()
         self.isoFormatter = ISO8601DateFormatter()
         self.isoFormatter.formatOptions = [.withInternetDateTime]
-        self.persistenceController = PersistenceController.shared
+        self.persistenceController = persistenceController
     }
 
-    func updateAfterNoteWrite(
-        notePath: String,
-        noteTitle: String,
-        noteMeta: NoteMeta,
-        context: NSManagedObjectContext?
-    ) async {
-        do {
-            let rootURL = try vaultRootURL()
-            let noteURL = rootURL.appendingPathComponent(notePath)
-            let noteBody = (try? VaultFileStore.readText(from: noteURL)) ?? ""
-            let now = Date()
-            var entry = IndexNoteEntry(
-                path: notePath,
-                title: noteTitle,
-                summary: noteMeta.summary,
-                tags: noteMeta.tags,
-                links: noteMeta.links,
-                updatedAt: nil
-            )
-            entry.updatedAt = isoFormatter.string(from: now)
+    var rebuildCheckpoint: ((String) throws -> Void)?
+    private let rebuildLock = NSRecursiveLock()
 
-            let notesCount = try updateIndexJSON(entry: entry, rootURL: rootURL, updatedAt: now)
-            try updateStructureFile(rootURL: rootURL)
-            try updateSearchStore(entry: entry, body: noteBody, rootURL: rootURL)
-            await updateIndexEntity(context: context, notesCount: notesCount, updatedAt: now)
-        } catch {
-            print("Index update failed: \(error)")
-        }
+    func updateAfterNoteWrite(notePath: String, noteTitle: String, noteMeta: NoteMeta, context: NSManagedObjectContext?) async {
+        _ = await IndexWorker.shared.process(store: self)
     }
 
     func removeNote(path: String, context: NSManagedObjectContext?) async {
-        do {
-            let rootURL = try vaultRootURL()
-            let now = Date()
-            let notesCount = try removeFromIndexJSON(path: path, rootURL: rootURL, updatedAt: now)
-            try updateStructureFile(rootURL: rootURL)
-            try removeFromSearchStore(path: path, rootURL: rootURL)
-            await updateIndexEntity(context: context, notesCount: notesCount, updatedAt: now)
-        } catch {
-            print("Index removal failed: \(error)")
-        }
+        _ = await IndexWorker.shared.process(store: self)
     }
 
     func rebuildSearchIndex() {
-        Task.detached(priority: .utility) { [weak self] in
-            guard let self else { return }
-            do {
-                let rootURL = try self.vaultRootURL()
-                if VaultFileStore.isEncryptionEnabled() {
-                    self.removeSearchStoreFiles(rootURL: rootURL)
-                    return
+        Task.detached(priority: .utility) { _ = await IndexWorker.shared.process(store: self, force: true) }
+    }
+
+    /// Reconstruct derived metadata and FTS from durable Markdown plus note/scan sidecars.
+    func rebuildFromVault(force: Bool = false) throws {
+        rebuildLock.lock()
+        defer { rebuildLock.unlock() }
+        let root = try vaultRootURL()
+        let repository = VaultRepository.register(rootURL: root, userDefaults: userDefaults)
+        let captured: (entries: [IndexNoteEntry], bodies: [String: String], signatures: [String: String]) = try repository.withAccess {
+            var metadata: [String: NoteMeta] = [:]
+            let metadataRoot = root.appendingPathComponent("_system/note-metadata")
+            if let enumerator = fileManager.enumerator(at: metadataRoot, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                for case let url as URL in enumerator where url.pathExtension == "json" {
+                    let item = try JSONDecoder().decode(VaultNoteMetadata.self, from: VaultFileStore.readData(from: url, userDefaults: userDefaults))
+                    metadata[item.path] = item.noteMeta
                 }
-                let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-                let snapshot = self.loadIndexSnapshot(from: indexURL)
-                try self.rebuildSearchStore(entries: snapshot.notes, rootURL: rootURL)
-            } catch {
-                print("Search index rebuild failed: \(error)")
             }
+            // Legacy scan sidecars are durable content, unlike INDEX.json.
+            var scans: [ScanMetadata] = []
+            if let enumerator = fileManager.enumerator(at: root.appendingPathComponent("scans"), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                for case let url as URL in enumerator where url.pathExtension == "json" && !url.lastPathComponent.hasPrefix("capture-") {
+                    if let data = try? VaultFileStore.readData(from: url, userDefaults: userDefaults), let scan = try? JSONDecoder().decode(ScanMetadata.self, from: data) { scans.append(scan) }
+                }
+            }
+            for scan in scans.sorted(by: { $0.capturedAt > $1.capturedAt }) where metadata[scan.notePath] == nil { metadata[scan.notePath] = scan.structured.noteMeta }
+            var entries: [IndexNoteEntry] = [], bodies: [String: String] = [:], signatures: [String: String] = [:]
+            if let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
+                for case let url as URL in enumerator where url.pathExtension.lowercased() == "md" {
+                    let path = String(url.path.dropFirst(root.path.count + 1))
+                    guard !path.hasPrefix("_system/"), !path.hasPrefix("scans/") else { continue }
+                    _ = try repository.validatedURL(path)
+                    let raw = try Data(contentsOf: url)
+                    let data = try VaultFileStore.decryptDataIfNeeded(raw, userDefaults: userDefaults, key: repository.encryptionKey)
+                    guard let body = String(data: data, encoding: .utf8) else { throw VaultFileStoreError.invalidTextEncoding }
+                    let title = body.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("# ") }).map { String($0.dropFirst(2)) } ?? titleFromPath(path)
+                    let meta = metadata[path] ?? NoteMeta(title: title, summary: nil, tags: nil, links: extractWikiLinks(from: body, limit: 100))
+                    let metadataData = try encoder.encode(meta)
+                    signatures[path] = VaultRepository.hash(raw) + ":" + VaultRepository.hash(metadataData)
+                    bodies[path] = body
+                    entries.append(IndexNoteEntry(path: path, title: meta.title, summary: meta.summary, tags: meta.tags, links: meta.links, updatedAt: nil))
+                }
+            }
+            return (entries.sorted { $0.path < $1.path }, bodies, signatures)
         }
+        let indexURL = root.appendingPathComponent("_system/INDEX.json")
+        let decodedIndex = (try? VaultFileStore.readData(from: indexURL, userDefaults: userDefaults)).flatMap { try? decoder.decode(IndexSnapshot.self, from: $0) }
+        let validIndex = decodedIndex?.notes == captured.entries
+        let encrypted = VaultFileStore.isEncryptionEnabled(userDefaults: userDefaults)
+        let searchExists = encrypted ? false : searchStoreIsValid(rootURL: root, expectedCount: captured.entries.count)
+        let state = try repository.revisionState()
+        if !force && state.indexed == captured.signatures && validIndex && (encrypted || searchExists) {
+            if encrypted { try removeSearchStoreFiles(rootURL: root) }
+            return
+        }
+        let snapshot = IndexSnapshot(generatedAt: isoFormatter.string(from: Date()), notes: captured.entries)
+        try VaultFileStore.writeData(encoder.encode(snapshot), to: indexURL, userDefaults: userDefaults)
+        try rebuildCheckpoint?("indexJSON")
+        try updateStructureFile(rootURL: root)
+        try repository.withAccess {
+            if VaultFileStore.isEncryptionEnabled(userDefaults: userDefaults) { try removeSearchStoreFiles(rootURL: root) }
+            else { try rebuildSearchStore(entries: captured.entries, rootURL: root, bodies: captured.bodies) }
+            if VaultFileStore.isEncryptionEnabled(userDefaults: userDefaults) { try removeSearchStoreFiles(rootURL: root) }
+        }
+        try rebuildCheckpoint?("search")
+        try repository.updateRevisionState { $0.indexed = captured.signatures }
     }
 
     func retrieveContextBundle(
@@ -146,6 +172,9 @@ final class VaultIndexStore {
             return ContextBundle(query: query, generatedAt: generatedAt, notes: [], sources: [])
         }
 
+        guard await IndexWorker.shared.process(store: self) else {
+            return ContextBundle(query: query, generatedAt: generatedAt, notes: [], sources: [], retrievalStatus: "indexUnavailable")
+        }
         do {
             let rootURL = try vaultRootURL()
             let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
@@ -156,7 +185,7 @@ final class VaultIndexStore {
                 limit: max(1, maxResults * 2)
             )
             let tokens = tokenizeQuery(trimmedQuery)
-            let linkingEnabled = OrganizationPreferences().linkingEnabled
+            let linkingEnabled = OrganizationPreferences(userDefaults: userDefaults).linkingEnabled
 
             var selectedEntries: [IndexNoteEntry] = []
             var selectedPaths = Set<String>()
@@ -217,57 +246,60 @@ final class VaultIndexStore {
             }
 
             let allEntries = selectedEntries + linkedEntries
-            let notes = allEntries.map { entry -> ContextNote in
-                let body = loadNoteBody(path: entry.path, maxCharacters: maxCharactersPerNote)
-                let excerpt = snippetByPath[entry.path] ?? makeExcerpt(from: body, maxCharacters: 240)
-                return ContextNote(
-                    path: entry.path,
-                    title: entry.title,
-                    summary: entry.summary,
-                    tags: entry.tags,
-                    links: linkingEnabled ? entry.links : nil,
-                    excerpt: excerpt,
-                    body: body
-                )
+            let repository = VaultRepository.register(rootURL: rootURL, userDefaults: userDefaults)
+            let notes: [ContextNote] = try repository.withAccess {
+                try allEntries.compactMap { entry in
+                    let url = try repository.validatedURL(entry.path)
+                    guard fileManager.fileExists(atPath: url.path) else { return nil }
+                    let raw = try Data(contentsOf: url)
+                    let data = try VaultFileStore.decryptDataIfNeeded(raw, userDefaults: userDefaults, key: repository.encryptionKey)
+                    guard let fullBody = String(data: data, encoding: .utf8) else { throw VaultFileStoreError.invalidTextEncoding }
+                    let body = String(fullBody.prefix(maxCharactersPerNote))
+                    return ContextNote(path: entry.path, title: entry.title, summary: entry.summary, tags: entry.tags,
+                                       links: linkingEnabled ? entry.links : nil, excerpt: makeExcerpt(from: body, maxCharacters: 240),
+                                       body: body, revision: .hash(VaultRepository.hash(raw)))
+                }
             }
-            let sources = allEntries.map { ContextSource(path: $0.path, title: $0.title) }
-            return ContextBundle(query: query, generatedAt: generatedAt, notes: notes, sources: sources)
+            let sources = notes.map { ContextSource(path: $0.path, title: $0.title) }
+            return ContextBundle(query: query, generatedAt: generatedAt, notes: notes, sources: sources, retrievalStatus: sources.isEmpty ? "empty" : "ready")
         } catch {
-            return ContextBundle(query: query, generatedAt: generatedAt, notes: [], sources: [])
+            return ContextBundle(query: query, generatedAt: generatedAt, notes: [], sources: [], retrievalStatus: "indexUnavailable")
         }
     }
 
-    private func updateIndexJSON(entry: IndexNoteEntry, rootURL: URL, updatedAt: Date) throws -> Int {
-        let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-        var snapshot = loadIndexSnapshot(from: indexURL)
-
-        if let index = snapshot.notes.firstIndex(where: { $0.path == entry.path }) {
-            snapshot.notes[index] = entry
-        } else {
-            snapshot.notes.append(entry)
+    /// Strict bounded reads for Library. Rebuild is explicit, never triggered by a keystroke.
+    func libraryEntries(query: String, limit: Int = 100, offset: Int = 0) throws -> [IndexNoteEntry] {
+        rebuildLock.lock()
+        defer { rebuildLock.unlock() }
+        let root = try vaultRootURL()
+        let repository = VaultRepository.register(rootURL: root, userDefaults: userDefaults)
+        return try repository.withAccess {
+            let url = try repository.validatedURL("_system/INDEX.json")
+            let snapshot = try JSONDecoder().decode(IndexSnapshot.self, from: VaultFileStore.readData(from: url, userDefaults: userDefaults))
+            let needle = String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(256))
+            var matches: [IndexNoteEntry] = []
+            let boundedLimit = min(max(limit, 1), 200)
+            let skip = max(offset, 0)
+            for entry in snapshot.notes.sorted(by: { $0.path > $1.path }) {
+                try Task.checkCancellation()
+                guard entry.path.hasSuffix(".md"), !entry.path.hasPrefix("_system/"), !entry.path.hasPrefix("scans/") else { continue }
+                let url = try repository.validatedURL(entry.path)
+                if !needle.isEmpty {
+                    let metadata = entry.title + " " + (entry.summary ?? "")
+                    if metadata.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) == nil {
+                        let body = try VaultFileStore.readText(from: url, userDefaults: userDefaults)
+                        guard body.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil else { continue }
+                    }
+                }
+                matches.append(entry)
+                if matches.count >= skip + boundedLimit { break }
+            }
+            return Array(matches.dropFirst(skip).prefix(boundedLimit))
         }
-
-        snapshot.notes.sort { $0.path < $1.path }
-        snapshot.generatedAt = isoFormatter.string(from: updatedAt)
-
-        let data = try encoder.encode(snapshot)
-        try VaultFileStore.writeData(data, to: indexURL)
-        return snapshot.notes.count
-    }
-
-    private func removeFromIndexJSON(path: String, rootURL: URL, updatedAt: Date) throws -> Int {
-        let indexURL = rootURL.appendingPathComponent("_system/INDEX.json")
-        var snapshot = loadIndexSnapshot(from: indexURL)
-        snapshot.notes.removeAll { $0.path == path }
-        snapshot.notes.sort { $0.path < $1.path }
-        snapshot.generatedAt = isoFormatter.string(from: updatedAt)
-        let data = try encoder.encode(snapshot)
-        try VaultFileStore.writeData(data, to: indexURL)
-        return snapshot.notes.count
     }
 
     private func loadIndexSnapshot(from url: URL) -> IndexSnapshot {
-        guard let data = try? VaultFileStore.readData(from: url) else {
+        guard let data = try? VaultFileStore.readData(from: url, userDefaults: userDefaults) else {
             return IndexSnapshot(notes: [])
         }
         if let snapshot = try? decoder.decode(IndexSnapshot.self, from: data) {
@@ -307,36 +339,15 @@ final class VaultIndexStore {
 
         let structureURL = rootURL.appendingPathComponent("_system/STRUCTURE.txt")
         let contents = lines.joined(separator: "\n") + "\n"
-        try VaultFileStore.writeText(contents, to: structureURL)
+        try VaultFileStore.writeText(contents, to: structureURL, userDefaults: userDefaults)
     }
 
-    private func updateSearchStore(entry: IndexNoteEntry, body: String, rootURL: URL) throws {
-        if VaultFileStore.isEncryptionEnabled() {
-            removeSearchStoreFiles(rootURL: rootURL)
-            return
-        }
+    private func rebuildSearchStore(entries: [IndexNoteEntry], rootURL: URL, bodies: [String: String]) throws {
         let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
         try fileManager.createDirectory(at: searchURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         try withSQLite {
-            var db: OpaquePointer?
-            guard sqlite3_open(searchURL.path, &db) == SQLITE_OK else {
-                throw VaultIndexError.sqliteOpenFailed
-            }
-            defer { sqlite3_close(db) }
-            sqlite3_busy_timeout(db, 1000)
-            try createSearchTable(db)
-            try deleteEntry(db, path: entry.path)
-            try insertEntry(db, entry: entry, body: body)
-        }
-    }
-
-    private func rebuildSearchStore(entries: [IndexNoteEntry], rootURL: URL) throws {
-        let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
-        try fileManager.createDirectory(at: searchURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        try withSQLite {
-            removeSearchStoreFiles(rootURL: rootURL)
+            try removeSearchStoreFiles(rootURL: rootURL)
             var db: OpaquePointer?
             guard sqlite3_open(searchURL.path, &db) == SQLITE_OK else {
                 throw VaultIndexError.sqliteOpenFailed
@@ -345,31 +356,9 @@ final class VaultIndexStore {
             sqlite3_busy_timeout(db, 1000)
             try createSearchTable(db)
             for entry in entries {
-                guard let body = loadNoteBodyFull(path: entry.path) else { continue }
+                guard let body = bodies[entry.path] else { continue }
                 try insertEntry(db, entry: entry, body: body)
             }
-        }
-    }
-
-    private func removeFromSearchStore(path: String, rootURL: URL) throws {
-        if VaultFileStore.isEncryptionEnabled() {
-            removeSearchStoreFiles(rootURL: rootURL)
-            return
-        }
-        let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
-        guard fileManager.fileExists(atPath: searchURL.path) else {
-            return
-        }
-
-        try withSQLite {
-            var db: OpaquePointer?
-            guard sqlite3_open(searchURL.path, &db) == SQLITE_OK else {
-                throw VaultIndexError.sqliteOpenFailed
-            }
-            defer { sqlite3_close(db) }
-            sqlite3_busy_timeout(db, 1000)
-            try createSearchTable(db)
-            try deleteEntry(db, path: path)
         }
     }
 
@@ -395,8 +384,26 @@ final class VaultIndexStore {
         let score: Int
     }
 
+    private func searchStoreIsValid(rootURL: URL, expectedCount: Int) -> Bool {
+        let url = rootURL.appendingPathComponent("_system/search.sqlite")
+        guard fileManager.fileExists(atPath: url.path) else { return false }
+        return (try? withSQLite {
+            var db: OpaquePointer?
+            guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return false }
+            defer { sqlite3_close(db) }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "PRAGMA quick_check", -1, &statement, nil) == SQLITE_OK else { return false }
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_step(statement) == SQLITE_ROW, stringColumn(statement, index: 0) == "ok" else { return false }
+            var count: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT count(*) FROM notes", -1, &count, nil) == SQLITE_OK else { return false }
+            defer { sqlite3_finalize(count) }
+            return sqlite3_step(count) == SQLITE_ROW && Int(sqlite3_column_int(count, 0)) == expectedCount
+        }) ?? false
+    }
+
     private func searchStore(query: String, rootURL: URL, limit: Int) throws -> [SearchMatch] {
-        if VaultFileStore.isEncryptionEnabled() {
+        if VaultFileStore.isEncryptionEnabled(userDefaults: userDefaults) {
             return []
         }
         let searchURL = rootURL.appendingPathComponent("_system/search.sqlite")
@@ -472,8 +479,10 @@ final class VaultIndexStore {
             let summary = (entry.summary ?? "").lowercased()
             let tags = (entry.tags ?? []).joined(separator: " ").lowercased()
             let links = includeLinks ? (entry.links ?? []).joined(separator: " ").lowercased() : ""
+            let body = VaultFileStore.isEncryptionEnabled(userDefaults: userDefaults) ? (loadNoteBodyFull(path: entry.path) ?? "").lowercased() : ""
             var score = 0
             for token in tokenSet {
+                if body.contains(token) { score += 1 }
                 if title.contains(token) {
                     score += 3
                 }
@@ -556,7 +565,7 @@ final class VaultIndexStore {
         let metadataPath = VaultScanStore.metadataPath(for: imagePath)
         let metadataURL = rootURL.appendingPathComponent(metadataPath)
         guard fileManager.fileExists(atPath: metadataURL.path),
-              let data = try? VaultFileStore.readData(from: metadataURL) else {
+              let data = try? VaultFileStore.readData(from: metadataURL, userDefaults: userDefaults) else {
             return nil
         }
         return try? decoder.decode(BatchMetadataReference.self, from: data)
@@ -592,7 +601,7 @@ final class VaultIndexStore {
                 return extracted
             }
         }
-        let body = loadNoteBody(path: entry.path, maxCharacters: 1200)
+        let body = loadNoteBodyFull(path: entry.path).map { String($0.prefix(1200)) }
         return extractWikiLinks(from: body ?? "", limit: 6)
     }
 
@@ -666,27 +675,16 @@ final class VaultIndexStore {
         return String(text[..<endIndex])
     }
 
-    private func loadNoteBody(path: String, maxCharacters: Int) -> String? {
-        guard let url = try? VaultScanStore.url(for: path),
-              let contents = try? VaultFileStore.readText(from: url) else {
-            return nil
-        }
-        if contents.count > maxCharacters {
-            let endIndex = contents.index(contents.startIndex, offsetBy: maxCharacters)
-            return String(contents[..<endIndex])
-        }
-        return contents
-    }
-
     private func loadNoteBodyFull(path: String) -> String? {
-        guard let url = try? VaultScanStore.url(for: path),
-              let contents = try? VaultFileStore.readText(from: url) else {
+        guard let rootURL = try? vaultRootURL(),
+              case let url = rootURL.appendingPathComponent(path),
+              let contents = try? VaultFileStore.readText(from: url, userDefaults: userDefaults) else {
             return nil
         }
         return contents
     }
 
-    private func removeSearchStoreFiles(rootURL: URL) {
+    private func removeSearchStoreFiles(rootURL: URL) throws {
         let directory = rootURL.appendingPathComponent("_system")
         let candidates = [
             directory.appendingPathComponent("search.sqlite"),
@@ -694,7 +692,7 @@ final class VaultIndexStore {
             directory.appendingPathComponent("search.sqlite-shm")
         ]
         for url in candidates where fileManager.fileExists(atPath: url.path) {
-            try? fileManager.removeItem(at: url)
+            try fileManager.removeItem(at: url)
         }
     }
 
@@ -719,19 +717,6 @@ final class VaultIndexStore {
         );
         """
         if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-            throw VaultIndexError.sqliteStepFailed
-        }
-    }
-
-    private func deleteEntry(_ db: OpaquePointer?, path: String) throws {
-        let sql = "DELETE FROM notes WHERE path = ?;"
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw VaultIndexError.sqlitePrepareFailed
-        }
-        defer { sqlite3_finalize(statement) }
-        bindText(statement, index: 1, value: path)
-        if sqlite3_step(statement) != SQLITE_DONE {
             throw VaultIndexError.sqliteStepFailed
         }
     }
@@ -768,36 +753,12 @@ final class VaultIndexStore {
         return String(cString: text)
     }
 
-    private func updateIndexEntity(
-        context: NSManagedObjectContext?,
-        notesCount: Int,
-        updatedAt: Date
-    ) async {
-        guard let context else { return }
-        await context.perform {
-            let request = IndexEntity.fetchRequest()
-            request.fetchLimit = 1
-            let indexEntity: IndexEntity
-            if let existing = try? context.fetch(request).first {
-                indexEntity = existing
-            } else {
-                indexEntity = IndexEntity(context: context)
-                indexEntity.id = UUID()
-                indexEntity.indexPath = "_system/INDEX.json"
-                indexEntity.structurePath = "_system/STRUCTURE.txt"
-                indexEntity.lastRebuildAt = updatedAt
-            }
-            indexEntity.notesCount = Int32(notesCount)
-            indexEntity.updatedAt = updatedAt
-            try? context.save()
-        }
-    }
-
     private func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
     }
 
     private func vaultRootURL() throws -> URL {
+        if let rootOverride { return rootOverride }
         guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             throw VaultIndexError.vaultRootUnavailable
         }
